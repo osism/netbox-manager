@@ -1,0 +1,6 @@
+PyYAML==6.0.2
+dynaconf==3.2.6
+loguru==0.7.2
+pynetbox==7.4.1
+typer==0.14.0
+yamale==5.2.1
