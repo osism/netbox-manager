@@ -1,5 +1,5 @@
 URL = ""
 TOKEN = ""
-DEVICETYPE_LIBRARY = "devicetype-library"
+DEVICETYPE_LIBRARY = "example/devicetype-library"
 VERBOSE = true
 IGNORE_SSL_ERRORS = true
