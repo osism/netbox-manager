@@ -79,3 +79,23 @@
     termination_b:
       device: sw0093
       name: Ethernet12
+
+- cable:
+    termination_a_type: dcim.interface
+    termination_a:
+      device: mgr0039
+      name: Ethernet3
+    termination_b_type: dcim.interface
+    termination_b:
+      device: sw0091
+      name: Ethernet16
+
+- cable:
+    termination_a_type: dcim.interface
+    termination_a:
+      device: mgr0039
+      name: Ethernet4
+    termination_b_type: dcim.interface
+    termination_b:
+      device: sw0093
+      name: Ethernet16
