@@ -8,12 +8,6 @@
     slug: ankh-morpork
     site: discworld
 
-- ipam_role:
-    name: Management
-
-- ipam_role:
-    name: External
-
 - prefix:
     family: 4
     prefix: 192.168.16.0/20

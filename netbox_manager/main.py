@@ -1,4 +1,5 @@
 import glob
+from natsort import natsorted
 import os
 import sys
 import tempfile
@@ -55,6 +56,9 @@ playbook_template = """
   connection: local
   hosts: localhost
   gather_facts: false
+
+  vars:
+    {{ vars | indent(4) }}
 
   tasks:
     {{ tasks | indent(4) }}
@@ -113,29 +117,34 @@ def run() -> None:
         files.extend(glob.glob(os.path.join(settings.RESOURCES, f"*.{extension}")))
 
     template = Template(playbook_template)
-    for file in files:
-        tasks = []
+    template_vars = {}
+    for file in natsorted(files):
+        template_tasks = []
         with open(file) as fp:
             data = yaml.safe_load(fp)
             for rtask in data:
                 key, value = next(iter(rtask.items()))
-                task = {
-                    "name": f"Manage NetBox resource {value.get('name', '')} of type {key}".replace(
-                        "  ", " "
-                    ),
-                    f"netbox.netbox.netbox_{key}": {
-                        "data": value,
-                        "netbox_token": settings.TOKEN,
-                        "netbox_url": settings.URL,
-                        "validate_certs": settings.IGNORE_SSL_ERRORS,
-                    },
-                }
-                tasks.append(task)
+                if key == "vars":
+                    template_vars = value
+                else:
+                    task = {
+                        "name": f"Manage NetBox resource {value.get('name', '')} of type {key}".replace(
+                            "  ", " "
+                        ),
+                        f"netbox.netbox.netbox_{key}": {
+                            "data": value,
+                            "netbox_token": settings.TOKEN,
+                            "netbox_url": settings.URL,
+                            "validate_certs": settings.IGNORE_SSL_ERRORS,
+                        },
+                    }
+                    template_tasks.append(task)
 
         playbook_resources = template.render(
             {
                 "name": os.path.basename(file),
-                "tasks": yaml.dump(tasks, indent=2, default_flow_style=False),
+                "vars": yaml.dump(template_vars, indent=2, default_flow_style=False),
+                "tasks": yaml.dump(template_tasks, indent=2, default_flow_style=False),
             }
         )
         with tempfile.TemporaryDirectory() as temp_dir:

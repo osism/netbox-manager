@@ -1,0 +1,39 @@
+---
+- ipam_role:
+    name: Management
+
+- ipam_role:
+    name: External
+
+- device_role:
+    name: Leaf
+
+- device_role:
+    name: Spine
+
+- device_role:
+    name: Storage
+
+- device_role:
+    name: Compute
+
+- device_role:
+    name: Manager
+
+- device_role:
+    name: Control
+
+- device_role:
+    name: Network
+
+- device_role:
+    name: Router
+
+- device_role:
+    name: Firewall
+
+- tag:
+    name: managed-by-osism
+
+- tag:
+    name: managed-by-ironic
