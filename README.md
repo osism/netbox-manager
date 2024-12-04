@@ -1,1 +1,1 @@
-# netbox-connection-manager
+# netbox-manager

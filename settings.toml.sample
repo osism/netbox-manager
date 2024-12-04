@@ -1,0 +1,5 @@
+URL = ""
+TOKEN = ""
+DEVICETYPE_LIBRARY = "devicetype-library"
+VERBOSE = true
+IGNORE_SSL_ERRORS = true
