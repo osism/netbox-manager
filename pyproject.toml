@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel", "setuptools-git-versioning"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netbox-manager"
+description = "NetBox manager"
+authors = [
+  { name = "OSISM community", email = "info@osism.tech" },
+]
+license = { file = "LICENSE" }
+readme = "README.md"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13"
+]
+requires-python = ">=3.8"
+dynamic = ["dependencies", "version"]
+
+[tool.mypy]
+exclude = ["doc"]
+
+[tool.setuptools]
+packages = ["netbox_manager"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools-git-versioning]
+enabled = true
+dev_template = "{tag}"
+dirty_template = "{tag}"
+
+[project.scripts]
+netbox-manager = "netbox_manager.main:main"
+
+[project.urls]
+"Homepage" = "https://github.com/osism/netbox-manager"
+"Bug Tracker" = "https://github.com/osism/netbox-manager/issues"

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 import glob
 from natsort import natsorted
 import os
