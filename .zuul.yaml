@@ -1,4 +1,29 @@
 ---
+- secret:
+    name: SECRET_NETBOX_MANAGER
+    data:
+      PYPI_API_TOKEN: !encrypted/pkcs1-oaep
+        - fZENqaRRN7+64759F2RmXfvGBGh55UsTYVovf+zKdC2RbUYiB+Z6sC+3ONI+FeeitPFnn
+          DQnkx3B8tckXCb7d4bjgLS2rkXG4U22F43qfFLcFElk0+8nVTO13OA+tt5OtZ6EAnhe9q
+          A0XiUtgTauCmExkor8sX39/Gx5rXb2KJ6XN2aQ+UWMS6qSe5zfcIMnKFdSGroTj++16EW
+          7TpoSustE8plRCMSqzMKX9Dh2oJK/P+xvuV4Up8Odle4zQRgA0+D+fIQE0bHbPrx1VH0x
+          IRw/shWtjdu009tm6cKsKzbJ+m+MM1AItu6/Bl6AsW7dp6wfhTUPwClO1OOhejGq/YXxS
+          /W2fItPUKcvMeMWxjQsNJQw63YEbrI4c5HoDybzq9S+iHK5u2d8zsNPZwAaR5P1zY6x8H
+          S44zh5XexTUiHV9qmrnw2YpYo0o+Sm2apD05qVINxP7xrPR8LKK49IVJl0cMdTEA72HYf
+          48TGOe/n52ILahb+1x6Bz56XbUYCK3x9tg6MmWI1LJbPgEBr8Gm24UVksGkoX6nCqORVt
+          Nratwe0QXba8zAepYSznbfyloRAd/ajUVH+kAY1lt8GzZAtxo8IuBwPaz9QJZMAd/6rFv
+          d2J8P7YNcMpp39z1Iqbx8ZA6/mLHI4etTQ7Bu5TQxUY4wVJADvsN74JHNLFPPU=
+
+- job:
+    name: netbox-manager-publish-pypi-package
+    parent: publish-pypi-package
+    secrets:
+      - name: secret
+        secret: SECRET_NETBOX_MANAGER
+        pass-to-parent: true
+    vars:
+      pypi_twine_executable: "/tmp/venv/bin/python -m twine"
+
 - project:
     merge-mode: squash-merge
     default-branch: main
@@ -14,3 +39,6 @@
         - mypy
         - python-black
         - yamllint
+    tag:
+      jobs:
+        - netbox-manager-publish-pypi-package
