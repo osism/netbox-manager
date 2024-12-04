@@ -384,7 +384,7 @@ class DeviceTypes:
         return {
             str(item): item
             for item in self.netbox.dcim.power_port_templates.filter(
-                devicetype_id=device_type
+                device_type_id=device_type
             )
         }
 
@@ -392,7 +392,7 @@ class DeviceTypes:
         return {
             str(item): item
             for item in self.netbox.dcim.rear_port_templates.filter(
-                devicetype_id=device_type
+                device_type_id=device_type
             )
         }
 
@@ -400,7 +400,7 @@ class DeviceTypes:
         return {
             str(item): item
             for item in self.netbox.dcim.power_port_templates.filter(
-                moduletype_id=module_type
+                module_type_id=module_type
             )
         }
 
@@ -408,7 +408,7 @@ class DeviceTypes:
         return {
             str(item): item
             for item in self.netbox.dcim.rear_port_templates.filter(
-                moduletype_id=module_type
+                module_type_id=module_type
             )
         }
 
@@ -434,7 +434,7 @@ class DeviceTypes:
         existing_interfaces = {
             str(item): item
             for item in self.netbox.dcim.interface_templates.filter(
-                devicetype_id=device_type
+                device_type_id=device_type
             )
         }
         to_create = self.get_device_type_ports_to_create(
@@ -477,7 +477,7 @@ class DeviceTypes:
         existing_console_ports = {
             str(item): item
             for item in self.netbox.dcim.console_port_templates.filter(
-                devicetype_id=device_type
+                device_type_id=device_type
             )
         }
         to_create = self.get_device_type_ports_to_create(
@@ -501,7 +501,7 @@ class DeviceTypes:
         existing_power_outlets = {
             str(item): item
             for item in self.netbox.dcim.power_outlet_templates.filter(
-                devicetype_id=device_type
+                device_type_id=device_type
             )
         }
         to_create = self.get_device_type_ports_to_create(
@@ -533,7 +533,7 @@ class DeviceTypes:
         existing_console_server_ports = {
             str(item): item
             for item in self.netbox.dcim.console_server_port_templates.filter(
-                devicetype_id=device_type
+                device_type_id=device_type
             )
         }
         to_create = self.get_device_type_ports_to_create(
@@ -578,7 +578,7 @@ class DeviceTypes:
         existing_front_ports = {
             str(item): item
             for item in self.netbox.dcim.front_port_templates.filter(
-                devicetype_id=device_type
+                device_type_id=device_type
             )
         }
         to_create = self.get_device_type_ports_to_create(
@@ -613,7 +613,7 @@ class DeviceTypes:
         existing_device_bays = {
             str(item): item
             for item in self.netbox.dcim.device_bay_templates.filter(
-                devicetype_id=device_type
+                device_type_id=device_type
             )
         }
         to_create = self.get_device_type_ports_to_create(
@@ -637,7 +637,7 @@ class DeviceTypes:
         existing_module_bays = {
             str(item): item
             for item in self.netbox.dcim.module_bay_templates.filter(
-                devicetype_id=device_type
+                device_type_id=device_type
             )
         }
         to_create = self.get_device_type_ports_to_create(
@@ -661,7 +661,7 @@ class DeviceTypes:
         existing_interfaces = {
             str(item): item
             for item in self.netbox.dcim.interface_templates.filter(
-                moduletype_id=module_type
+                module_type_id=module_type
             )
         }
         to_create = self.get_module_type_ports_to_create(
@@ -704,7 +704,7 @@ class DeviceTypes:
         existing_console_ports = {
             str(item): item
             for item in self.netbox.dcim.console_port_templates.filter(
-                moduletype_id=module_type
+                module_type_id=module_type
             )
         }
         to_create = self.get_module_type_ports_to_create(
@@ -728,7 +728,7 @@ class DeviceTypes:
         existing_power_outlets = {
             str(item): item
             for item in self.netbox.dcim.power_outlet_templates.filter(
-                moduletype_id=module_type
+                module_type_id=module_type
             )
         }
         to_create = self.get_module_type_ports_to_create(
@@ -760,7 +760,7 @@ class DeviceTypes:
         existing_console_server_ports = {
             str(item): item
             for item in self.netbox.dcim.console_server_port_templates.filter(
-                moduletype_id=module_type
+                module_type_id=module_type
             )
         }
         to_create = self.get_module_type_ports_to_create(
@@ -807,7 +807,7 @@ class DeviceTypes:
         existing_front_ports = {
             str(item): item
             for item in self.netbox.dcim.front_port_templates.filter(
-                moduletype_id=module_type
+                module_type_id=module_type
             )
         }
         to_create = self.get_module_type_ports_to_create(

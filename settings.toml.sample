@@ -1,4 +1,3 @@
-CONNECTIONS = "example/connections"
 DEVICETYPE_LIBRARY = "example/devicetype-library"
 IGNORE_SSL_ERRORS = true
 RESOURCES = "example/resources"
