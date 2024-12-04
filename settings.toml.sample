@@ -1,5 +1,7 @@
-URL = ""
-TOKEN = ""
+CONNECTIONS = "example/connections"
 DEVICETYPE_LIBRARY = "example/devicetype-library"
-VERBOSE = true
 IGNORE_SSL_ERRORS = true
+RESOURCES = "example/resources"
+TOKEN = ""
+URL = "https://XXX.netbox.regio.digital"
+VERBOSE = true
