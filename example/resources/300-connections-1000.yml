@@ -1,0 +1,81 @@
+# https://docs.ansible.com/ansible/latest/collections/netbox/netbox/netbox_cable_module.html
+---
+- cable:
+    termination_a_type: dcim.interface
+    termination_a:
+      device: com0001
+      name: Ethernet3
+    termination_b_type: dcim.interface
+    termination_b:
+      device: sw0091
+      name: Ethernet0
+
+- cable:
+    termination_a_type: dcim.interface
+    termination_a:
+      device: com0001
+      name: Ethernet4
+    termination_b_type: dcim.interface
+    termination_b:
+      device: sw0093
+      name: Ethernet0
+
+- cable:
+    termination_a_type: dcim.interface
+    termination_a:
+      device: com0003
+      name: Ethernet3
+    termination_b_type: dcim.interface
+    termination_b:
+      device: sw0091
+      name: Ethernet4
+
+- cable:
+    termination_a_type: dcim.interface
+    termination_a:
+      device: com0003
+      name: Ethernet4
+    termination_b_type: dcim.interface
+    termination_b:
+      device: sw0093
+      name: Ethernet4
+
+- cable:
+    termination_a_type: dcim.interface
+    termination_a:
+      device: com0005
+      name: Ethernet3
+    termination_b_type: dcim.interface
+    termination_b:
+      device: sw0091
+      name: Ethernet8
+
+- cable:
+    termination_a_type: dcim.interface
+    termination_a:
+      device: com0005
+      name: Ethernet4
+    termination_b_type: dcim.interface
+    termination_b:
+      device: sw0093
+      name: Ethernet8
+
+- cable:
+    termination_a_type: dcim.interface
+    termination_a:
+      device: com0007
+      name: Ethernet3
+    termination_b_type: dcim.interface
+    termination_b:
+      device: sw0091
+      name: Ethernet12
+
+- cable:
+    termination_a_type: dcim.interface
+    termination_a:
+      device: com0007
+      name: Ethernet4
+    termination_b_type: dcim.interface
+    termination_b:
+      device: sw0093
+      name: Ethernet12

@@ -4,6 +4,8 @@ import os
 import sys
 import tempfile
 import time
+from typing import Optional
+from typing_extensions import Annotated
 import warnings
 
 import ansible_runner
@@ -83,42 +85,52 @@ playbook_wait = """
 """
 
 
-def run() -> None:
+def run(
+    limit: Annotated[Optional[str], typer.Option(help="Limit files by prefix")] = None,
+    wait: Annotated[bool, typer.Option(help="Wait for NetBox service")] = True,
+    skipdtl: Annotated[bool, typer.Option(help="Skip device type library")] = False,
+) -> None:
     start = time.time()
 
     # install netbox.netbox collection
     # ansible-galaxy collection install netbox.netbox
 
     # wait for NetBox service
-    logger.info("Wait for NetBox service")
+    if wait:
+        logger.info("Wait for NetBox service")
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        with tempfile.NamedTemporaryFile(
-            mode="w+", suffix=".yml", delete=False
-        ) as temp_file:
-            temp_file.write(playbook_wait)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with tempfile.NamedTemporaryFile(
+                mode="w+", suffix=".yml", delete=False
+            ) as temp_file:
+                temp_file.write(playbook_wait)
 
-        ansible_runner.run(
-            playbook=temp_file.name, private_data_dir=temp_dir, inventory=inventory
-        )
+            ansible_runner.run(
+                playbook=temp_file.name, private_data_dir=temp_dir, inventory=inventory
+            )
 
     # manage devicetype library
-    logger.info("Manage devicetype library")
-    dtl_repo = DTLRepo(settings.DEVICETYPE_LIBRARY)
-    files, vendors = dtl_repo.get_devices()
-    device_types = dtl_repo.parse_files(files)
+    if not skipdtl:
+        logger.info("Manage devicetype library")
+        dtl_repo = DTLRepo(settings.DEVICETYPE_LIBRARY)
+        files, vendors = dtl_repo.get_devices()
+        device_types = dtl_repo.parse_files(files)
 
-    dtl_netbox = DTLNetBox(settings)
-    dtl_netbox.create_manufacturers(vendors)
-    dtl_netbox.create_device_types(device_types)
+        dtl_netbox = DTLNetBox(settings)
+        dtl_netbox.create_manufacturers(vendors)
+        dtl_netbox.create_device_types(device_types)
 
     files = []
     for extension in ["yml", "yaml"]:
         files.extend(glob.glob(os.path.join(settings.RESOURCES, f"*.{extension}")))
 
     template = Template(playbook_template)
-    template_vars = {}
     for file in natsorted(files):
+        if limit and not os.path.basename(file).startswith(limit):
+            logger.info(f"Skipping {os.path.basename(file)}")
+            continue
+
+        template_vars = {}
         template_tasks = []
         with open(file) as fp:
             data = yaml.safe_load(fp)
