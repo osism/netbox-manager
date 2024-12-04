@@ -51,7 +51,7 @@ inventory = {
 }
 
 playbook_template = """
-- name: Manage resources in {{ name }}
+- name: Manage NetBox resources defined in {{ name }}
   connection: local
   hosts: localhost
   gather_facts: false
@@ -117,12 +117,19 @@ def run() -> None:
         tasks = []
         with open(file) as fp:
             data = yaml.safe_load(fp)
-            for task in data:
-                for key in task.keys():
-                    if key.startswith("netbox.netbox"):
-                        task[key]["netbox_token"] = settings.TOKEN
-                        task[key]["netbox_url"] = settings.URL
-                        task[key]["validate_certs"] = settings.IGNORE_SSL_ERRORS
+            for rtask in data:
+                key, value = next(iter(rtask.items()))
+                task = {
+                    "name": f"Manage NetBox resource {value.get('name', '')} of type {key}".replace(
+                        "  ", " "
+                    ),
+                    f"netbox.netbox.netbox_{key}": {
+                        "data": value,
+                        "netbox_token": settings.TOKEN,
+                        "netbox_url": settings.URL,
+                        "validate_certs": settings.IGNORE_SSL_ERRORS,
+                    },
+                }
                 tasks.append(task)
 
         playbook_resources = template.render(
