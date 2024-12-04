@@ -1,0 +1,12 @@
+- name: Manage Discworld site
+  netbox.netbox.netbox_site:
+    data:
+      name: Discworld
+      slug: discworld
+
+- name: Manage Ankh-Morpork location
+  netbox.netbox.netbox_location:
+    data:
+      name: Ankh-Morpork
+      slug: ankh-morpork
+      site: discworld
