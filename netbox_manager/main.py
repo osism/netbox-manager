@@ -18,7 +18,7 @@ import pynetbox
 import typer
 import yaml
 
-from dtl import DTLRepo, DTLNetBox
+from .dtl import DTLRepo, DTLNetBox
 
 warnings.filterwarnings("ignore")
 
