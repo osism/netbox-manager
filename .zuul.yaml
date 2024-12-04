@@ -3,16 +3,16 @@
     name: SECRET_NETBOX_MANAGER
     data:
       PYPI_API_TOKEN: !encrypted/pkcs1-oaep
-        - fZENqaRRN7+64759F2RmXfvGBGh55UsTYVovf+zKdC2RbUYiB+Z6sC+3ONI+FeeitPFnn
-          DQnkx3B8tckXCb7d4bjgLS2rkXG4U22F43qfFLcFElk0+8nVTO13OA+tt5OtZ6EAnhe9q
-          A0XiUtgTauCmExkor8sX39/Gx5rXb2KJ6XN2aQ+UWMS6qSe5zfcIMnKFdSGroTj++16EW
-          7TpoSustE8plRCMSqzMKX9Dh2oJK/P+xvuV4Up8Odle4zQRgA0+D+fIQE0bHbPrx1VH0x
-          IRw/shWtjdu009tm6cKsKzbJ+m+MM1AItu6/Bl6AsW7dp6wfhTUPwClO1OOhejGq/YXxS
-          /W2fItPUKcvMeMWxjQsNJQw63YEbrI4c5HoDybzq9S+iHK5u2d8zsNPZwAaR5P1zY6x8H
-          S44zh5XexTUiHV9qmrnw2YpYo0o+Sm2apD05qVINxP7xrPR8LKK49IVJl0cMdTEA72HYf
-          48TGOe/n52ILahb+1x6Bz56XbUYCK3x9tg6MmWI1LJbPgEBr8Gm24UVksGkoX6nCqORVt
-          Nratwe0QXba8zAepYSznbfyloRAd/ajUVH+kAY1lt8GzZAtxo8IuBwPaz9QJZMAd/6rFv
-          d2J8P7YNcMpp39z1Iqbx8ZA6/mLHI4etTQ7Bu5TQxUY4wVJADvsN74JHNLFPPU=
+        - KHFsjgY2P2vPDilZLNdsv0IzEFmCVAJQYaTP69Pf3+SGGOLGhq2r5u66V4ZuATzoktvaw
+          lCUCdr4hnv6BsbFVAGwPfrUQ6pKCsY/inzwbdwcflHC/8aoFlUYb8JiQ1U/109dgzfTKb
+          DhE53KJnHZtg1NLBbZ1P1iNOuvaMvUw6i3851PSzTeFk7cwfmyV5tFDx6kTiQJB0ojvYS
+          spfunAowaXmfTr2LpAkVo7GaE8zhZjLmDgzsBPsKSnWDhulNNNInEfPYewmG7Qp0VtdYA
+          6eBis9kdekZLk5/RG7yf1mehiCs9CyqZpWDvGmwwGZOFA+V2LsjPmY2OMKMFsiyBvit2/
+          +x8Aienq5YynPlOteiwgKGRD4zAyk8DkZ/YCUCjuvMUBQXRCdWWn4KIPnHlgV+Xr3mtMD
+          MN9bC/Ta9nWXo+C2/Krxu5tQIiKKa3qdOply8tCo+USFbbxV4Yn5eiH4uk3V/Y1n1b7Hm
+          Tpqw90fGsfVfT9REF3gI6LW/6W3PpjBmS2DV6zMN+lTCXm4mytafnXsm0gIwwEmzSvY/m
+          cGleM35EdcA7BotPWblD1QhtejEqd/lZ0XBSvxGECeL6y6h+JmsVctbd/rdC1z3Xou3j0
+          cPXh+4GdHuLqwT6d1uwp8VdCwD176LR+PGk3rcF1KtWHGCcNwekrhlpc1ge4CM=
 
 - job:
     name: netbox-manager-publish-pypi-package
