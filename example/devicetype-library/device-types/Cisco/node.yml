@@ -1,0 +1,28 @@
+---
+manufacturer: Cisco
+model: Node
+slug: node
+u_height: 1
+is_full_depth: true
+console-ports: []
+power-ports:
+  - name: PS1
+    type: iec-60320-c14
+  - name: PS2
+    type: iec-60320-c14
+interfaces:
+  - name: Ethernet0
+    type: 1000base-t
+    mgmt_only: true
+  - name: Ethernet1
+    type: 10gbase-t
+  - name: Ethernet2
+    type: 10gbase-t
+  - name: Ethernet3
+    type: 100gbase-x-qsfp28
+  - name: Ethernet4
+    type: 100gbase-x-qsfp28
+  - name: Ethernet5
+    type: 100gbase-x-qsfp28
+  - name: Ethernet6
+    type: 100gbase-x-qsfp28

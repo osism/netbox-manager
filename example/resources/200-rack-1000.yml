@@ -1,0 +1,89 @@
+---
+- vars:
+    site: Discworld
+    location: Ankh-Morpork
+    rack: "0000"
+
+- rack:
+    name: "{{ rack }}"
+    site: "{{ site }}"
+    location: "{{ location }}"
+    u_height: 47
+
+- device:
+    name: sw0093
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: edgecore-7726-32x-o
+    device_role: Leaf
+    face: rear
+    airflow: rear-to-front
+    position: 47
+    tags:
+      - managed-by-osism
+
+- device:
+    name: sw0091
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: edgecore-7726-32x-o
+    device_role: Leaf
+    face: rear
+    airflow: rear-to-front
+    position: 46
+    tags:
+      - managed-by-osism
+
+- device:
+    name: com0001
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: node
+    device_role: Compute
+    face: front
+    airflow: front-to-rear
+    position: 1
+    tags:
+      - managed-by-osism
+
+- device:
+    name: com0003
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: node
+    device_role: Compute
+    face: front
+    airflow: front-to-rear
+    position: 2
+    tags:
+      - managed-by-osism
+
+- device:
+    name: com0005
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: node
+    device_role: Compute
+    face: front
+    airflow: front-to-rear
+    position: 3
+    tags:
+      - managed-by-osism
+
+- device:
+    name: com0007
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: node
+    device_role: Compute
+    face: front
+    airflow: front-to-rear
+    position: 4
+    tags:
+      - managed-by-osism
