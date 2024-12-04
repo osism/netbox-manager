@@ -48,6 +48,7 @@
     position: 1
     tags:
       - managed-by-osism
+      - managed-by-ironic
 
 - device:
     name: com0003
@@ -61,6 +62,7 @@
     position: 2
     tags:
       - managed-by-osism
+      - managed-by-ironic
 
 - device:
     name: com0005
@@ -74,6 +76,7 @@
     position: 3
     tags:
       - managed-by-osism
+      - managed-by-ironic
 
 - device:
     name: com0007
@@ -85,5 +88,19 @@
     face: front
     airflow: front-to-rear
     position: 4
+    tags:
+      - managed-by-osism
+      - managed-by-ironic
+
+- device:
+    name: mgr0039
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: manager
+    device_role: Manager
+    face: front
+    airflow: front-to-rear
+    position: 20
     tags:
       - managed-by-osism
