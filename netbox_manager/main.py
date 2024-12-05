@@ -32,7 +32,7 @@ logger.add(sys.stderr, format=log_fmt, level="INFO", colorize=True)
 
 settings = Dynaconf(
     envvar_prefix="NETBOX_MANAGER",
-    settings_files=["settings.toml"],
+    settings_files=["settings.toml", ".secrets.toml"],
     load_dotenv=True,
 )
 
