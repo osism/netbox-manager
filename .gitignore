@@ -1,3 +1,4 @@
+.secrets.toml
 build
 netbox_manager.egg-info
 settings.toml
