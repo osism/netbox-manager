@@ -18,7 +18,7 @@ import pynetbox
 import typer
 import yaml
 
-from .dtl import DTLRepo, DTLNetBox
+from .dtl import Repo, NetBox
 
 warnings.filterwarnings("ignore")
 
@@ -89,8 +89,10 @@ playbook_wait = """
 
 def run(
     limit: Annotated[Optional[str], typer.Option(help="Limit files by prefix")] = None,
+    skipdtl: Annotated[bool, typer.Option(help="Skip devicetype library")] = False,
+    skipmtl: Annotated[bool, typer.Option(help="Skip moduletype library")] = False,
+    skipres: Annotated[bool, typer.Option(help="Skip resources")] = False,
     wait: Annotated[bool, typer.Option(help="Wait for NetBox service")] = True,
-    skipdtl: Annotated[bool, typer.Option(help="Skip device type library")] = False,
 ) -> None:
     start = time.time()
 
@@ -111,65 +113,87 @@ def run(
                 playbook=temp_file.name, private_data_dir=temp_dir, inventory=inventory
             )
 
+    if not skipdtl or not skipmtl:
+        dtl_netbox = NetBox(settings)
+
     # manage devicetype library
     if not skipdtl:
-        logger.info("Manage devicetype library")
-        dtl_repo = DTLRepo(settings.DEVICETYPE_LIBRARY)
+        logger.info("Manage devicetypes")
+
+        dtl_repo = Repo(settings.DEVICETYPE_LIBRARY)
+
         files, vendors = dtl_repo.get_devices()
         device_types = dtl_repo.parse_files(files)
 
-        dtl_netbox = DTLNetBox(settings)
         dtl_netbox.create_manufacturers(vendors)
         dtl_netbox.create_device_types(device_types)
 
-    files = []
-    for extension in ["yml", "yaml"]:
-        files.extend(glob.glob(os.path.join(settings.RESOURCES, f"*.{extension}")))
+    if not skipmtl:
+        logger.info("Manage moduletypes")
 
-    template = Template(playbook_template)
-    for file in natsorted(files):
-        if limit and not os.path.basename(file).startswith(limit):
-            logger.info(f"Skipping {os.path.basename(file)}")
-            continue
+        dtl_repo = Repo(settings.MODULETYPE_LIBRARY)
 
-        template_vars = {}
-        template_tasks = []
-        with open(file) as fp:
-            data = yaml.safe_load(fp)
-            for rtask in data:
-                key, value = next(iter(rtask.items()))
-                if key == "vars":
-                    template_vars = value
-                else:
-                    task = {
-                        "name": f"Manage NetBox resource {value.get('name', '')} of type {key}".replace(
-                            "  ", " "
-                        ),
-                        f"netbox.netbox.netbox_{key}": {
-                            "data": value,
-                            "netbox_token": settings.TOKEN,
-                            "netbox_url": settings.URL,
-                            "validate_certs": settings.IGNORE_SSL_ERRORS,
-                        },
-                    }
-                    template_tasks.append(task)
+        files, vendors = dtl_repo.get_devices()
+        module_types = dtl_repo.parse_files(files)
 
-        playbook_resources = template.render(
-            {
-                "name": os.path.basename(file),
-                "vars": yaml.dump(template_vars, indent=2, default_flow_style=False),
-                "tasks": yaml.dump(template_tasks, indent=2, default_flow_style=False),
-            }
-        )
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with tempfile.NamedTemporaryFile(
-                mode="w+", suffix=".yml", delete=False
-            ) as temp_file:
-                temp_file.write(playbook_resources)
+        dtl_netbox.create_manufacturers(vendors)
+        dtl_netbox.create_module_types(module_types)
 
-            ansible_runner.run(
-                playbook=temp_file.name, private_data_dir=temp_dir, inventory=inventory
+    if not skipres:
+        files = []
+        for extension in ["yml", "yaml"]:
+            files.extend(glob.glob(os.path.join(settings.RESOURCES, f"*.{extension}")))
+
+        template = Template(playbook_template)
+        for file in natsorted(files):
+            if limit and not os.path.basename(file).startswith(limit):
+                logger.info(f"Skipping {os.path.basename(file)}")
+                continue
+
+            template_vars = {}
+            template_tasks = []
+            with open(file) as fp:
+                data = yaml.safe_load(fp)
+                for rtask in data:
+                    key, value = next(iter(rtask.items()))
+                    if key == "vars":
+                        template_vars = value
+                    else:
+                        task = {
+                            "name": f"Manage NetBox resource {value.get('name', '')} of type {key}".replace(
+                                "  ", " "
+                            ),
+                            f"netbox.netbox.netbox_{key}": {
+                                "data": value,
+                                "netbox_token": settings.TOKEN,
+                                "netbox_url": settings.URL,
+                                "validate_certs": settings.IGNORE_SSL_ERRORS,
+                            },
+                        }
+                        template_tasks.append(task)
+
+            playbook_resources = template.render(
+                {
+                    "name": os.path.basename(file),
+                    "vars": yaml.dump(
+                        template_vars, indent=2, default_flow_style=False
+                    ),
+                    "tasks": yaml.dump(
+                        template_tasks, indent=2, default_flow_style=False
+                    ),
+                }
             )
+            with tempfile.TemporaryDirectory() as temp_dir:
+                with tempfile.NamedTemporaryFile(
+                    mode="w+", suffix=".yml", delete=False
+                ) as temp_file:
+                    temp_file.write(playbook_resources)
+
+                ansible_runner.run(
+                    playbook=temp_file.name,
+                    private_data_dir=temp_dir,
+                    inventory=inventory,
+                )
 
     end = time.time()
     logger.info(f"Runtime: {(end-start):.4f}s")

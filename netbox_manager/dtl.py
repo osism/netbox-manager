@@ -14,7 +14,7 @@ import requests
 import yaml
 
 
-class DTLLogHandler:
+class LogHandler:
     def __new__(cls, *args, **kwargs):
         return super().__new__(cls)
 
@@ -65,7 +65,7 @@ class DTLLogHandler:
         return len(created_ports)
 
 
-class DTLRepo:
+class Repo:
     def __new__(cls, *args, **kwargs):
         return super().__new__(cls)
 
@@ -137,7 +137,7 @@ class DTLRepo:
         return deviceTypes
 
 
-class DTLNetBox:
+class NetBox:
     def __new__(cls, *args, **kwargs):
         return super().__new__(cls)
 
@@ -152,7 +152,7 @@ class DTLNetBox:
         )
         self.url = settings.URL
         self.token = settings.TOKEN
-        self.handle = DTLLogHandler(settings)
+        self.handle = LogHandler(settings)
         self.netbox = None
         self.ignore_ssl = settings.IGNORE_SSL_ERRORS
         self.modules = False
