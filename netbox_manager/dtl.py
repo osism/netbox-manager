@@ -81,10 +81,10 @@ class Repo:
         return os.path.join(self.cwd, self.base_path)
 
     def get_devices_path(self):
-        return os.path.join(self.get_absolute_path(), "device-types")
+        return os.path.join(self.get_absolute_path())
 
     def get_modules_path(self):
-        return os.path.join(self.get_absolute_path(), "module-types")
+        return os.path.join(self.get_absolute_path())
 
     def slug_format(self, name):
         return re_sub(r"\W+", "-", name.lower())
