@@ -3,7 +3,7 @@ PyYAML==6.0.2
 ansible-core==2.17.7
 ansible-runner==2.4.0
 dynaconf==3.2.6
-loguru==0.7.2
+loguru==0.7.3
 natsort==8.4.0
 pynetbox==7.4.1
 typer==0.15.1
