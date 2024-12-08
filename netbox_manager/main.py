@@ -159,12 +159,18 @@ def run(
                     if key == "vars":
                         template_vars = value
                     else:
+                        state = "present"
+                        if "state" in value:
+                            state = value["state"]
+                            del value["state"]
+
                         task = {
                             "name": f"Manage NetBox resource {value.get('name', '')} of type {key}".replace(
                                 "  ", " "
                             ),
                             f"netbox.netbox.netbox_{key}": {
                                 "data": value,
+                                "state": state,
                                 "netbox_token": settings.TOKEN,
                                 "netbox_url": settings.URL,
                                 "validate_certs": settings.IGNORE_SSL_ERRORS,
