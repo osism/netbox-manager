@@ -4,7 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-Jinja2 = "==3.1.4"
+Jinja2 = "==3.1.5"
 PyYAML = "==6.0.2"
 ansible-core = "==2.18.1"
 ansible-runner = "==2.4.0"
