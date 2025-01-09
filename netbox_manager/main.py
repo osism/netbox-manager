@@ -158,6 +158,9 @@ def run(
                     key, value = next(iter(rtask.items()))
                     if key == "vars":
                         template_vars = value
+                    elif key == "debug":
+                        task = {"ansible.builtin.debug": value}
+                        template_tasks.append(task)
                     else:
                         state = "present"
                         if "state" in value:
