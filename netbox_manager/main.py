@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
+import concurrent.futures
 import glob
-from natsort import natsorted
+from itertools import groupby
 import os
 import sys
 import tempfile
@@ -87,8 +88,74 @@ playbook_wait = """
 """
 
 
+def get_leading_number(file: str) -> str:
+    return file.split("-")[0]
+
+
+def handle_file(file: str, dryrun: bool) -> None:
+    template = Template(playbook_template)
+
+    template_vars = {}
+    template_tasks = []
+
+    with open(file) as fp:
+        data = yaml.safe_load(fp)
+        for rtask in data:
+            key, value = next(iter(rtask.items()))
+            if key == "vars":
+                template_vars = value
+            elif key == "debug":
+                task = {"ansible.builtin.debug": value}
+                template_tasks.append(task)
+            else:
+                state = "present"
+                if "state" in value:
+                    state = value["state"]
+                    del value["state"]
+
+                task = {
+                    "name": f"Manage NetBox resource {value.get('name', '')} of type {key}".replace(
+                        "  ", " "
+                    ),
+                    f"netbox.netbox.netbox_{key}": {
+                        "data": value,
+                        "state": state,
+                        "netbox_token": settings.TOKEN,
+                        "netbox_url": settings.URL,
+                        "validate_certs": settings.IGNORE_SSL_ERRORS,
+                    },
+                }
+                template_tasks.append(task)
+
+    playbook_resources = template.render(
+        {
+            "name": os.path.basename(file),
+            "vars": yaml.dump(template_vars, indent=2, default_flow_style=False),
+            "tasks": yaml.dump(template_tasks, indent=2, default_flow_style=False),
+        }
+    )
+    with tempfile.TemporaryDirectory() as temp_dir:
+        with tempfile.NamedTemporaryFile(
+            mode="w+", suffix=".yml", delete=False
+        ) as temp_file:
+            temp_file.write(playbook_resources)
+
+        if dryrun:
+            logger.info(f"Skip the execution of {file} as only one dry run")
+        else:
+            ansible_runner.run(
+                playbook=temp_file.name,
+                private_data_dir=temp_dir,
+                inventory=inventory,
+            )
+
+
 def run(
     limit: Annotated[Optional[str], typer.Option(help="Limit files by prefix")] = None,
+    parallel: Annotated[
+        Optional[int], typer.Option(help="Process up to n files in parallel")
+    ] = 1,
+    dryrun: Annotated[bool, typer.Option(help="Dry run")] = False,
     skipdtl: Annotated[bool, typer.Option(help="Skip devicetype library")] = False,
     skipmtl: Annotated[bool, typer.Option(help="Skip moduletype library")] = False,
     skipres: Annotated[bool, typer.Option(help="Skip resources")] = False,
@@ -144,65 +211,30 @@ def run(
         for extension in ["yml", "yaml"]:
             files.extend(glob.glob(os.path.join(settings.RESOURCES, f"*.{extension}")))
 
-        template = Template(playbook_template)
-        for file in natsorted(files):
-            if limit and not os.path.basename(file).startswith(limit):
-                logger.info(f"Skipping {os.path.basename(file)}")
-                continue
+        files.sort(key=get_leading_number)
+        files_grouped = []
+        for _, group in groupby(files, key=get_leading_number):
+            files_grouped.append(list(group))
 
-            template_vars = {}
-            template_tasks = []
-            with open(file) as fp:
-                data = yaml.safe_load(fp)
-                for rtask in data:
-                    key, value = next(iter(rtask.items()))
-                    if key == "vars":
-                        template_vars = value
-                    elif key == "debug":
-                        task = {"ansible.builtin.debug": value}
-                        template_tasks.append(task)
-                    else:
-                        state = "present"
-                        if "state" in value:
-                            state = value["state"]
-                            del value["state"]
+        for group in files_grouped:  # type: ignore[assignment]
+            files_process = []
+            for file in group:
+                if limit and not os.path.basename(file).startswith(limit):
+                    logger.info(f"Skipping {os.path.basename(file)}")
+                    continue
 
-                        task = {
-                            "name": f"Manage NetBox resource {value.get('name', '')} of type {key}".replace(
-                                "  ", " "
-                            ),
-                            f"netbox.netbox.netbox_{key}": {
-                                "data": value,
-                                "state": state,
-                                "netbox_token": settings.TOKEN,
-                                "netbox_url": settings.URL,
-                                "validate_certs": settings.IGNORE_SSL_ERRORS,
-                            },
-                        }
-                        template_tasks.append(task)
+                files_process.append(file)
 
-            playbook_resources = template.render(
-                {
-                    "name": os.path.basename(file),
-                    "vars": yaml.dump(
-                        template_vars, indent=2, default_flow_style=False
-                    ),
-                    "tasks": yaml.dump(
-                        template_tasks, indent=2, default_flow_style=False
-                    ),
-                }
-            )
-            with tempfile.TemporaryDirectory() as temp_dir:
-                with tempfile.NamedTemporaryFile(
-                    mode="w+", suffix=".yml", delete=False
-                ) as temp_file:
-                    temp_file.write(playbook_resources)
-
-                ansible_runner.run(
-                    playbook=temp_file.name,
-                    private_data_dir=temp_dir,
-                    inventory=inventory,
-                )
+            if files_process:
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=parallel
+                ) as executor:
+                    futures = [
+                        executor.submit(handle_file, file, dryrun)
+                        for file in files_process
+                    ]
+                    for future in concurrent.futures.as_completed(futures):
+                        future.result()
 
     end = time.time()
     logger.info(f"Runtime: {(end-start):.4f}s")
