@@ -4,6 +4,7 @@ import concurrent.futures
 import glob
 from itertools import groupby
 import os
+import pkg_resources
 import sys
 import tempfile
 import time
@@ -150,12 +151,26 @@ def handle_file(file: str, dryrun: bool) -> None:
             )
 
 
+def version_callback(value: bool):
+    print(f"Version {pkg_resources.get_distribution('netbox-manager').version}")
+    raise typer.Exit()
+
+
 def run(
+    dryrun: Annotated[bool, typer.Option(help="Dry run")] = False,
     limit: Annotated[Optional[str], typer.Option(help="Limit files by prefix")] = None,
     parallel: Annotated[
         Optional[int], typer.Option(help="Process up to n files in parallel")
     ] = 1,
-    dryrun: Annotated[bool, typer.Option(help="Dry run")] = False,
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            help="Show version and exit",
+            callback=version_callback,
+            is_eager=True,
+        ),
+    ] = True,
     skipdtl: Annotated[bool, typer.Option(help="Skip devicetype library")] = False,
     skipmtl: Annotated[bool, typer.Option(help="Skip moduletype library")] = False,
     skipres: Annotated[bool, typer.Option(help="Skip resources")] = False,
