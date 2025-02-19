@@ -149,10 +149,12 @@ def handle_file(file: str, dryrun: bool) -> None:
                 playbook=temp_file.name,
                 private_data_dir=temp_dir,
                 inventory=inventory,
+                cancel_callback=lambda: None,
             )
 
 
 def signal_handler_sigint(sig, frame):
+    print("SIGINT received. Exit.")
     raise typer.Exit()
 
 
@@ -169,14 +171,14 @@ def run(
         Optional[int], typer.Option(help="Process up to n files in parallel")
     ] = 1,
     version: Annotated[
-        bool,
+        Optional[bool],
         typer.Option(
             "--version",
             help="Show version and exit",
             callback=callback_version,
             is_eager=True,
         ),
-    ] = False,
+    ] = None,
     skipdtl: Annotated[bool, typer.Option(help="Skip devicetype library")] = False,
     skipmtl: Annotated[bool, typer.Option(help="Skip moduletype library")] = False,
     skipres: Annotated[bool, typer.Option(help="Skip resources")] = False,
@@ -198,7 +200,10 @@ def run(
                 temp_file.write(playbook_wait)
 
             ansible_runner.run(
-                playbook=temp_file.name, private_data_dir=temp_dir, inventory=inventory
+                playbook=temp_file.name,
+                private_data_dir=temp_dir,
+                inventory=inventory,
+                cancel_callback=lambda: None,
             )
 
     if not skipdtl or not skipmtl:
