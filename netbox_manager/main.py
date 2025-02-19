@@ -100,6 +100,7 @@ def handle_file(file: str, dryrun: bool) -> None:
     template_vars = {}
     template_tasks = []
 
+    logger.info(f"Handle file {file}")
     with open(file) as fp:
         data = yaml.safe_load(fp)
         for rtask in data:
