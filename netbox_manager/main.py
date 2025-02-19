@@ -234,6 +234,8 @@ def run(
         dtl_netbox.create_module_types(module_types)
 
     if not skipres:
+        logger.info("Manage resources")
+
         files = []
         for extension in ["yml", "yaml"]:
             files.extend(glob.glob(os.path.join(settings.RESOURCES, f"*.{extension}")))
