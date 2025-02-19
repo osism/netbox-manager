@@ -176,7 +176,7 @@ def run(
             callback=callback_version,
             is_eager=True,
         ),
-    ] = True,
+    ] = False,
     skipdtl: Annotated[bool, typer.Option(help="Skip devicetype library")] = False,
     skipmtl: Annotated[bool, typer.Option(help="Skip moduletype library")] = False,
     skipres: Annotated[bool, typer.Option(help="Skip resources")] = False,
