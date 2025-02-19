@@ -157,8 +157,9 @@ def signal_handler_sigint(sig, frame):
 
 
 def callback_version(value: bool):
-    print(f"Version {pkg_resources.get_distribution('netbox-manager').version}")
-    raise typer.Exit()
+    if value:
+        print(f"Version {pkg_resources.get_distribution('netbox-manager').version}")
+        raise typer.Exit()
 
 
 def run(
