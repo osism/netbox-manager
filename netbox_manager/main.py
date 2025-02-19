@@ -5,6 +5,7 @@ import glob
 from itertools import groupby
 import os
 import pkg_resources
+import signal
 import sys
 import tempfile
 import time
@@ -151,7 +152,11 @@ def handle_file(file: str, dryrun: bool) -> None:
             )
 
 
-def version_callback(value: bool):
+def signal_handler_sigint(sig, frame):
+    raise typer.Exit()
+
+
+def callback_version(value: bool):
     print(f"Version {pkg_resources.get_distribution('netbox-manager').version}")
     raise typer.Exit()
 
@@ -167,7 +172,7 @@ def run(
         typer.Option(
             "--version",
             help="Show version and exit",
-            callback=version_callback,
+            callback=callback_version,
             is_eager=True,
         ),
     ] = True,
@@ -256,6 +261,7 @@ def run(
 
 
 def main() -> None:
+    signal.signal(signal.SIGINT, signal_handler_sigint)
     typer.run(run)
 
 
