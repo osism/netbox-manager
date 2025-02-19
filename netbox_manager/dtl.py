@@ -232,9 +232,7 @@ class NetBox:
 
             # Pre-process front/rear_image flag, remove it if present
             saved_images = {}
-            image_base = os.path.dirname(src_file).replace(
-                "device-types", "elevation-images"
-            )
+            image_base = os.path.dirname(src_file).replace("devicetypes", "images")
             for i in ["front_image", "rear_image"]:
                 if i in device_type:
                     if device_type[i]:
