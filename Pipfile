@@ -6,7 +6,7 @@ name = "pypi"
 [packages]
 Jinja2 = "==3.1.5"
 PyYAML = "==6.0.2"
-ansible-core = "==2.18.2"
+ansible-core = "==2.18.3"
 ansible-runner = "==2.4.0"
 dynaconf = "==3.2.10"
 loguru = "==0.7.3"
