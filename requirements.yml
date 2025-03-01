@@ -1,5 +1,1 @@
----
-collections:
-  - name: https://github.com/netbox-community/ansible_modules
-    type: git
-    version: devel
+netbox_manager/requirements.yml

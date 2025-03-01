@@ -1,0 +1,7 @@
+DEVICETYPE_LIBRARY = "example/devicetypes"
+IGNORE_SSL_ERRORS = true
+MODULETYPE_LIBRARY = "example/moduletypes"
+RESOURCES = "example/resources"
+TOKEN = ""
+URL = "https://XXX.netbox.regio.digital"
+VERBOSE = true

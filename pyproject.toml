@@ -43,6 +43,9 @@ enabled = true
 dev_template = "{tag}"
 dirty_template = "{tag}"
 
+[tool.setuptools.package-data]
+netbox_manager = ["requirements.yml", "settings.toml.sample"]
+
 [project.scripts]
 netbox-manager = "netbox_manager.main:main"
 
