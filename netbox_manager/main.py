@@ -153,7 +153,7 @@ def handle_file(file: str, dryrun: bool) -> None:
                         "state": state,
                         "netbox_token": settings.TOKEN,
                         "netbox_url": settings.URL,
-                        "validate_certs": settings.IGNORE_SSL_ERRORS,
+                        "validate_certs": not settings.IGNORE_SSL_ERRORS,
                     },
                 }
                 template_tasks.append(task)
