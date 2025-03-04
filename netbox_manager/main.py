@@ -228,12 +228,18 @@ def run(
             ) as temp_file:
                 temp_file.write(playbook_wait)
 
-            ansible_runner.run(
+            ansible_result = ansible_runner.run(
                 playbook=temp_file.name,
                 private_data_dir=temp_dir,
                 inventory=inventory,
                 cancel_callback=lambda: None,
             )
+            if (
+                "localhost" in ansible_result.stats["failures"]
+                and ansible_result.stats["failures"]["localhost"] > 0
+            ):
+                logger.error("Failed to establish connection to netbox")
+                raise typer.Exit()
 
     if (
         settings.DEVICETYPE_LIBRARY
