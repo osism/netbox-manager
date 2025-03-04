@@ -78,8 +78,6 @@ inventory = {
         "hosts": {
             "localhost": {
                 "ansible_connection": "local",
-                "netbox_url": settings.URL,
-                "netbox_token": settings.TOKEN,
                 "ansible_python_interpreter": sys.executable,
             }
         }
@@ -99,22 +97,24 @@ playbook_template = """
     {{ tasks | indent(4) }}
 """
 
-playbook_wait = """
+playbook_wait = f"""
 - name: Wait for NetBox service
   hosts: localhost
   gather_facts: false
 
   tasks:
-    - name: Wait for NetBox service
+    - name: Wait for NetBox service REST API
       ansible.builtin.uri:
-        url: "{{ netbox_url }}"
-        return_content: true
+        url: "{settings.URL.rstrip('/')}/api/"
+        headers:
+          Authorization: "Token {settings.TOKEN}"
+          Accept: application/json
         status_code: [200]
-        validate_certs: false
+        validate_certs: {not settings.IGNORE_SSL_ERRORS}
       register: result
-      failed_when: "'NetBox Community' not in result.content"
       retries: 60
       delay: 5
+      until: result.status == 200 or result.status == 403
 """
 
 
