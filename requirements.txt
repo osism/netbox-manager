@@ -5,6 +5,6 @@ ansible-runner==2.4.0
 dynaconf==3.2.10
 loguru==0.7.3
 pynetbox==7.4.1
-setuptools==78.0.2
+setuptools==78.1.0
 typer==0.15.2
 yamale==6.0.0
