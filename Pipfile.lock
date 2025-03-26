@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "c1ad0f050d873b5cc9aa6b65e5efa57eee8c8e32710003346256505ff1558bec"
+            "sha256": "1e832ad60d5e930b8e3986ed9355fad3f97737a74d72566319610e56efbc6f49"
         },
         "pipfile-spec": 6,
         "requires": {},
@@ -25,12 +25,12 @@
         },
         "ansible-runner": {
             "hashes": [
-                "sha256:82d02b2548830f37a53517b65c823c4af371069406c7d213b5c9041d45e0c5b6",
-                "sha256:a3f592ae4cdfa62a72ad15de60da9c8210f376d67f495c4a78d4cf1dc7ccdf89"
+                "sha256:11d717da4dd8d93d56703a4a98e5f2154026a7ed1b46d9930902b8298dc67d09",
+                "sha256:ef4efe906414f6e9a4c2e41d131fabc3bfe952f16edded7bdc06d597b05f0eb6"
             ],
             "index": "pypi",
             "markers": "python_version >= '3.9'",
-            "version": "==2.4.0"
+            "version": "==2.4.1"
         },
         "certifi": {
             "hashes": [
@@ -550,11 +550,11 @@
         },
         "typing-extensions": {
             "hashes": [
-                "sha256:04e5ca0351e0f3f85c6853954072df659d0d13fac324d0072316b67d7794700d",
-                "sha256:1a7ead55c7e559dd4dee8856e3a88b41225abfe1ce8df57b7c13915fe121ffb8"
+                "sha256:0a4ac55a5820789d87e297727d229866c9650f6521b64206413c4fbada24d95b",
+                "sha256:c8dd92cc0d6425a97c18fbb9d1954e5ff92c1ca881a309c45f06ebc0b79058e5"
             ],
             "markers": "python_version >= '3.8'",
-            "version": "==4.12.2"
+            "version": "==4.13.0"
         },
         "urllib3": {
             "hashes": [
