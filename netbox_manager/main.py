@@ -28,14 +28,6 @@ files_changed: list[str] = []
 
 warnings.filterwarnings("ignore")
 
-log_fmt = (
-    "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | "
-    "<level>{message}</level>"
-)
-
-logger.remove()
-logger.add(sys.stderr, format=log_fmt, level="INFO", colorize=True)
-
 settings = Dynaconf(
     envvar_prefix="NETBOX_MANAGER",
     settings_files=["settings.toml", ".secrets.toml"],
@@ -198,6 +190,7 @@ def callback_version(value: bool):
 
 def run(
     always: Annotated[bool, typer.Option(help="Always run")] = True,
+    debug: Annotated[bool, typer.Option(help="Debug")] = False,
     dryrun: Annotated[bool, typer.Option(help="Dry run")] = False,
     limit: Annotated[Optional[str], typer.Option(help="Limit files by prefix")] = None,
     parallel: Annotated[
@@ -218,6 +211,19 @@ def run(
     wait: Annotated[bool, typer.Option(help="Wait for NetBox service")] = True,
 ) -> None:
     start = time.time()
+
+    log_fmt = (
+        "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | "
+        "<level>{message}</level>"
+    )
+
+    if debug:
+        log_level = "DEBUG"
+    else:
+        log_level = "INFO"
+
+    logger.remove()
+    logger.add(sys.stderr, format=log_fmt, level=log_level, colorize=True)
 
     # install netbox.netbox collection
     # ansible-galaxy collection install netbox.netbox
