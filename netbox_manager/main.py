@@ -234,7 +234,7 @@ def run(
             config_repo = git.Repo(".")
         except git.exc.InvalidGitRepositoryError:
             logger.error(
-                "If only changed files are to be processed, the netbox-manager must be called in a Git repository"
+                "If only changed files are to be processed, the netbox-manager must be called in a Git repository."
             )
             raise typer.Exit()
 
@@ -242,30 +242,38 @@ def run(
         files_changed = [str(item.a_path) for item in commit.diff(commit.parents[0])]
 
         if debug:
-            logger.debug("A list of the changed files follows")
+            logger.debug(
+                "A list of the changed files follows. Only changed files are processed."
+            )
             for f in files_changed:
                 logger.debug(f"- {f}")
 
         # skip devicetype library when no files changed there
         if not skipdtl and not any(
-            f.startswith(settings.MODULETYPE_LIBRARY) for f in files_changed
+            f.startswith(settings.DEVICETYPE_LIBRARY) for f in files_changed
         ):
+            logger.debug(
+                "No file changes in the devicetype library. Devicetype library will be skipped."
+            )
             skipdtl = True
 
         # skip moduletype library when no files changed there
         if not skipmtl and not any(
-            f.startswith(settings.DEVICETYPE_LIBRARY) for f in files_changed
+            f.startswith(settings.MODULETYPE_LIBRARY) for f in files_changed
         ):
+            logger.debug(
+                "No file changes in the moduletype library. Moduletype library will be skipped."
+            )
             skipmtl = True
 
         # skip resources when no files changed there
         if not skipres and not any(
             f.startswith(settings.RESOURCES) for f in files_changed
         ):
+            logger.debug("No file changes in the resources. Resources will be skipped.")
             skipres = True
 
-    if not skipdtl and not skipmtl and not skipres:
-        logger.info("Everything is skipped")
+    if skipdtl and skipmtl and skipres:
         raise typer.Exit()
 
     # wait for NetBox service
