@@ -241,6 +241,11 @@ def run(
         commit = config_repo.head.commit
         files_changed = [str(item.a_path) for item in commit.diff(commit.parents[0])]
 
+        if debug:
+            logger.debug("A list of the changed files follows")
+            for f in files_changed:
+                logger.debug(f"- {f}")
+
         # skip devicetype library when no files changed there
         if not skipdtl and not any(
             f.startswith(settings.MODULETYPE_LIBRARY) for f in files_changed
