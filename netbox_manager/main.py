@@ -15,6 +15,7 @@ import warnings
 
 import ansible_runner
 from dynaconf import Dynaconf, Validator, ValidationError
+import git
 from jinja2 import Template
 from loguru import logger
 import pynetbox
@@ -22,6 +23,8 @@ import typer
 import yaml
 
 from .dtl import Repo, NetBox
+
+files_changed: list[str] = []
 
 warnings.filterwarnings("ignore")
 
@@ -39,7 +42,7 @@ settings = Dynaconf(
     load_dotenv=True,
 )
 
-# Note: Lazy validate configuration
+# NOTE: lazy validate configuration
 settings.validators.register(
     Validator("DEVICETYPE_LIBRARY", is_type_of=str)
     | Validator("DEVICETYPE_LIBRARY", is_type_of=None, default=None),
@@ -194,6 +197,7 @@ def callback_version(value: bool):
 
 
 def run(
+    always: Annotated[bool, typer.Option(help="Always run")] = True,
     dryrun: Annotated[bool, typer.Option(help="Dry run")] = False,
     limit: Annotated[Optional[str], typer.Option(help="Limit files by prefix")] = None,
     parallel: Annotated[
@@ -218,6 +222,41 @@ def run(
     # install netbox.netbox collection
     # ansible-galaxy collection install netbox.netbox
 
+    # check for changed files
+    if not always:
+        try:
+            config_repo = git.Repo(".")
+        except git.exc.InvalidGitRepositoryError:
+            logger.error(
+                "If only changed files are to be processed, the netbox-manager must be called in a Git repository"
+            )
+            raise typer.Exit()
+
+        commit = config_repo.head.commit
+        files_changed = [str(item.a_path) for item in commit.diff(commit.parents[0])]
+
+        # skip devicetype library when no files changed there
+        if not skipdtl and not any(
+            f.startswith(settings.MODULETYPE_LIBRARY) for f in files_changed
+        ):
+            skipdtl = True
+
+        # skip moduletype library when no files changed there
+        if not skipmtl and not any(
+            f.startswith(settings.DEVICETYPE_LIBRARY) for f in files_changed
+        ):
+            skipmtl = True
+
+        # skip resources when no files changed there
+        if not skipres and not any(
+            f.startswith(settings.RESOURCES) for f in files_changed
+        ):
+            skipres = True
+
+    if not skipdtl and not skipmtl and not skipres:
+        logger.info("Everything is skipped")
+        raise typer.Exit()
+
     # wait for NetBox service
     if wait:
         logger.info("Wait for NetBox service")
@@ -241,15 +280,13 @@ def run(
                 logger.error("Failed to establish connection to netbox")
                 raise typer.Exit()
 
-    if (
-        settings.DEVICETYPE_LIBRARY
-        and not skipdtl
-        or settings.MODULETYPE_LIBRARY
-        and not skipmtl
+    # prepare devicetype and moduletype library
+    if (settings.DEVICETYPE_LIBRARY and not skipdtl) or (
+        settings.MODULETYPE_LIBRARY and not skipmtl
     ):
         dtl_netbox = NetBox(settings)
 
-    # manage devicetype library
+    # manage devicetypes
     if settings.DEVICETYPE_LIBRARY and not skipdtl:
         logger.info("Manage devicetypes")
 
@@ -266,6 +303,7 @@ def run(
                 f"Could not load device types in {settings.DEVICETYPE_LIBRARY}"
             )
 
+    # manage moduletypes
     if settings.MODULETYPE_LIBRARY and not skipmtl:
         logger.info("Manage moduletypes")
 
@@ -282,6 +320,7 @@ def run(
                 f"Could not load module types in {settings.MODULETYPE_LIBRARY}"
             )
 
+    # manage resources
     if not skipres:
         logger.info("Manage resources")
 
@@ -294,9 +333,14 @@ def run(
             except FileNotFoundError:
                 logger.error(f"Could not load resources in {settings.RESOURCES}")
 
-        files.sort(key=get_leading_number)
+        if not always:
+            files_filtered = [f for f in files if f in files_changed]
+        else:
+            files_filtered = files
+
+        files_filtered.sort(key=get_leading_number)
         files_grouped = []
-        for _, group in groupby(files, key=get_leading_number):
+        for _, group in groupby(files_filtered, key=get_leading_number):
             files_grouped.append(list(group))
 
         for group in files_grouped:  # type: ignore[assignment]
