@@ -1,7 +1,7 @@
 GitPython==3.1.44
 Jinja2==3.1.6
 PyYAML==6.0.2
-ansible-core==2.18.4
+ansible-core==2.18.5
 ansible-runner==2.4.1
 dynaconf==3.2.10
 loguru==0.7.3
