@@ -5,7 +5,7 @@ ansible-core==2.18.6
 ansible-runner==2.4.1
 dynaconf==3.2.11
 loguru==0.7.3
-pynetbox==7.4.1
+pynetbox==7.5.0
 setuptools==80.7.1
 typer==0.15.4
 yamale==6.0.0
