@@ -7,6 +7,7 @@ import os
 import pkg_resources
 import signal
 import sys
+import tarfile
 import tempfile
 import time
 from typing import Optional
@@ -188,27 +189,17 @@ def callback_version(value: bool):
         raise typer.Exit()
 
 
-def run(
-    always: Annotated[bool, typer.Option(help="Always run")] = True,
-    debug: Annotated[bool, typer.Option(help="Debug")] = False,
-    dryrun: Annotated[bool, typer.Option(help="Dry run")] = False,
-    limit: Annotated[Optional[str], typer.Option(help="Limit files by prefix")] = None,
-    parallel: Annotated[
-        Optional[int], typer.Option(help="Process up to n files in parallel")
-    ] = 1,
-    version: Annotated[
-        Optional[bool],
-        typer.Option(
-            "--version",
-            help="Show version and exit",
-            callback=callback_version,
-            is_eager=True,
-        ),
-    ] = None,
-    skipdtl: Annotated[bool, typer.Option(help="Skip devicetype library")] = False,
-    skipmtl: Annotated[bool, typer.Option(help="Skip moduletype library")] = False,
-    skipres: Annotated[bool, typer.Option(help="Skip resources")] = False,
-    wait: Annotated[bool, typer.Option(help="Wait for NetBox service")] = True,
+def _run_main(
+    always: bool = True,
+    debug: bool = False,
+    dryrun: bool = False,
+    limit: Optional[str] = None,
+    parallel: Optional[int] = 1,
+    version: Optional[bool] = None,
+    skipdtl: bool = False,
+    skipmtl: bool = False,
+    skipres: bool = False,
+    wait: bool = True,
 ) -> None:
     start = time.time()
 
@@ -386,9 +377,89 @@ def run(
     logger.info(f"Runtime: {(end-start):.4f}s")
 
 
+app = typer.Typer()
+
+
+@app.command(
+    name="run", help="Process NetBox resources, device types, and module types"
+)
+def run_command(
+    always: Annotated[bool, typer.Option(help="Always run")] = True,
+    debug: Annotated[bool, typer.Option(help="Debug")] = False,
+    dryrun: Annotated[bool, typer.Option(help="Dry run")] = False,
+    limit: Annotated[Optional[str], typer.Option(help="Limit files by prefix")] = None,
+    parallel: Annotated[
+        Optional[int], typer.Option(help="Process up to n files in parallel")
+    ] = 1,
+    version: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--version",
+            help="Show version and exit",
+            callback=callback_version,
+            is_eager=True,
+        ),
+    ] = None,
+    skipdtl: Annotated[bool, typer.Option(help="Skip devicetype library")] = False,
+    skipmtl: Annotated[bool, typer.Option(help="Skip moduletype library")] = False,
+    skipres: Annotated[bool, typer.Option(help="Skip resources")] = False,
+    wait: Annotated[bool, typer.Option(help="Wait for NetBox service")] = True,
+) -> None:
+    """Process NetBox resources, device types, and module types."""
+    _run_main(
+        always, debug, dryrun, limit, parallel, version, skipdtl, skipmtl, skipres, wait
+    )
+
+
+@app.command(
+    help="Export devicetypes, moduletypes, and resources to netbox-export.tar.gz"
+)
+def export() -> None:
+    """Export devicetypes, moduletypes, and resources to netbox-export.tar.gz."""
+    log_fmt = (
+        "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | "
+        "<level>{message}</level>"
+    )
+    logger.remove()
+    logger.add(sys.stderr, format=log_fmt, level="INFO", colorize=True)
+
+    directories = []
+    if settings.DEVICETYPE_LIBRARY and os.path.exists(settings.DEVICETYPE_LIBRARY):
+        directories.append(settings.DEVICETYPE_LIBRARY)
+    if settings.MODULETYPE_LIBRARY and os.path.exists(settings.MODULETYPE_LIBRARY):
+        directories.append(settings.MODULETYPE_LIBRARY)
+    if settings.RESOURCES and os.path.exists(settings.RESOURCES):
+        directories.append(settings.RESOURCES)
+
+    if not directories:
+        logger.error("No directories found to export")
+        raise typer.Exit(1)
+
+    output_file = "netbox-export.tar.gz"
+
+    try:
+        with tarfile.open(output_file, "w:gz") as tar:
+            for directory in directories:
+                logger.info(f"Adding {directory} to archive")
+                tar.add(directory, arcname=os.path.basename(directory))
+
+        logger.info(f"Export completed: {output_file}")
+    except Exception as e:
+        logger.error(f"Failed to create archive: {e}")
+        raise typer.Exit(1)
+
+
+@app.callback(invoke_without_command=True)
+def main_callback(ctx: typer.Context):
+    """Handle default behavior when no command is specified."""
+    if ctx.invoked_subcommand is None:
+        # Default to run command when no subcommand is specified
+        run_command()
+
+
 def main() -> None:
     signal.signal(signal.SIGINT, signal_handler_sigint)
-    typer.run(run)
+    app()
 
 
 if __name__ == "__main__":
