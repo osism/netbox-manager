@@ -8,5 +8,5 @@ loguru==0.7.3
 pynetbox==7.5.0
 setuptools==80.8.0
 sushy==5.6.0
-typer==0.15.4
+typer==0.16.0
 yamale==6.0.0
