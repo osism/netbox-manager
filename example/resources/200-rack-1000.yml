@@ -2,105 +2,232 @@
 - vars:
     site: Discworld
     location: Ankh-Morpork
-    rack: "0000"
+    rack: "1000"
+    tenant: Testbed
 
 - rack:
     name: "{{ rack }}"
+    tenant: "{{ tenant }}"
     site: "{{ site }}"
     location: "{{ location }}"
     u_height: 47
 
 - device:
-    name: sw0093
+    name: testbed-switch-0
+    tenant: "{{ tenant }}"
     site: "{{ site }}"
     location: "{{ location }}"
     rack: "{{ rack }}"
-    device_type: edgecore-7726-32x-o
-    device_role: Leaf
+    device_type: edgecore-7726-32x-o-ac-b
+    device_role: leaf
     face: rear
-    airflow: rear-to-front
-    position: 47
+    position: 27
     tags:
       - managed-by-osism
+    custom_fields:
+      dnsmasq_dhcp_tag: edgecore
+
 
 - device:
-    name: sw0091
+    name: testbed-switch-1
+    tenant: "{{ tenant }}"
     site: "{{ site }}"
     location: "{{ location }}"
     rack: "{{ rack }}"
-    device_type: edgecore-7726-32x-o
-    device_role: Leaf
+    device_type: edgecore-7726-32x-o-ac-b
+    device_role: leaf
     face: rear
-    airflow: rear-to-front
-    position: 46
+    position: 28
     tags:
       - managed-by-osism
+    custom_fields:
+      dnsmasq_dhcp_tag: edgecore
 
 - device:
-    name: com0001
+    name: testbed-switch-2
+    tenant: "{{ tenant }}"
     site: "{{ site }}"
     location: "{{ location }}"
     rack: "{{ rack }}"
-    device_type: node
-    device_role: Compute
-    face: front
-    airflow: front-to-rear
-    position: 1
+    device_type: edgecore-7726-32x-o-ac-b
+    device_role: spine
+    face: rear
+    position: 29
     tags:
       - managed-by-osism
-      - managed-by-ironic
+    custom_fields:
+      dnsmasq_dhcp_tag: edgecore
 
 - device:
-    name: com0003
+    name: testbed-switch-3
+    tenant: "{{ tenant }}"
     site: "{{ site }}"
     location: "{{ location }}"
     rack: "{{ rack }}"
-    device_type: node
-    device_role: Compute
-    face: front
-    airflow: front-to-rear
-    position: 2
+    device_type: edgecore-7726-32x-o-ac-b
+    device_role: spine
+    face: rear
+    position: 30
     tags:
       - managed-by-osism
-      - managed-by-ironic
+    custom_fields:
+      dnsmasq_dhcp_tag: edgecore
 
 - device:
-    name: com0005
+    name: testbed-switch-oob
+    tenant: "{{ tenant }}"
     site: "{{ site }}"
     location: "{{ location }}"
     rack: "{{ rack }}"
-    device_type: node
-    device_role: Compute
-    face: front
-    airflow: front-to-rear
-    position: 3
+    device_type: edgecore-5835-54t-o-ac-f
+    device_role: accessleaf
+    face: rear
+    position: 31
     tags:
       - managed-by-osism
-      - managed-by-ironic
+      - out-of-band
+    custom_fields:
+      dnsmasq_dhcp_tag: edgecore
 
 - device:
-    name: com0007
+    name: testbed-manager
+    tenant: "{{ tenant }}"
     site: "{{ site }}"
     location: "{{ location }}"
     rack: "{{ rack }}"
-    device_type: node
-    device_role: Compute
-    face: front
-    airflow: front-to-rear
-    position: 4
-    tags:
-      - managed-by-osism
-      - managed-by-ironic
-
-- device:
-    name: mgr0039
-    site: "{{ site }}"
-    location: "{{ location }}"
-    rack: "{{ rack }}"
-    device_type: manager
+    device_type: Manager
     device_role: Manager
     face: front
-    airflow: front-to-rear
-    position: 20
+    position: 5
+    tags:
+      - managed-by-osism
+
+- device:
+    name: testbed-node-0
+    tenant: "{{ tenant }}"
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: Node
+    device_role: Control
+    face: front
+    position: 10
+    tags:
+      - managed-by-osism
+
+- device:
+    name: testbed-node-1
+    tenant: "{{ tenant }}"
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: Node
+    device_role: Control
+    face: front
+    position: 11
+    tags:
+      - managed-by-osism
+
+- device:
+    name: testbed-node-2
+    tenant: "{{ tenant }}"
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: Node
+    device_role: Control
+    face: front
+    position: 12
+    tags:
+      - managed-by-osism
+
+- device:
+    name: testbed-node-3
+    tenant: "{{ tenant }}"
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: Node
+    device_role: Compute
+    face: front
+    position: 13
+    tags:
+      - managed-by-osism
+
+- device:
+    name: testbed-node-4
+    tenant: "{{ tenant }}"
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: Node
+    device_role: Compute
+    face: front
+    position: 14
+    tags:
+      - managed-by-osism
+
+- device:
+    name: testbed-node-5
+    tenant: "{{ tenant }}"
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: Node
+    device_role: Compute
+    face: front
+    position: 15
+    tags:
+      - managed-by-osism
+
+- device:
+    name: testbed-node-6
+    tenant: "{{ tenant }}"
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: Node
+    device_role: Storage
+    face: front
+    position: 16
+    tags:
+      - managed-by-osism
+
+- device:
+    name: testbed-node-7
+    tenant: "{{ tenant }}"
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: Node
+    device_role: Storage
+    face: front
+    position: 17
+    tags:
+      - managed-by-osism
+
+- device:
+    name: testbed-node-8
+    tenant: "{{ tenant }}"
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: Node
+    device_role: Storage
+    face: front
+    position: 18
+    tags:
+      - managed-by-osism
+
+- device:
+    name: testbed-node-9
+    tenant: "{{ tenant }}"
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+    device_type: Node
+    device_role: Storage
+    face: front
+    position: 19
     tags:
       - managed-by-osism

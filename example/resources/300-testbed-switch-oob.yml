@@ -1,0 +1,49 @@
+---
+- device_interface:
+    device: testbed-switch-oob
+    name: Loopback0
+    type: virtual
+    enabled: true
+
+- ip_address:
+    tenant: Testbed
+    address: 172.16.0.31/20
+    assigned_object:
+      name: eth0
+      device: testbed-switch-oob
+
+- mac_address:
+    mac_address: "F8:1D:7C:93:A6:2B"
+    assigned_object:
+      device: testbed-switch-oob
+      name: eth0
+
+- ip_address:
+    tenant: Testbed
+    address: 192.168.16.31/32
+    assigned_object:
+      name: Loopback0
+      device: testbed-switch-oob
+
+- ip_address:
+    tenant: Testbed
+    address: "fda6:f659:8c2b::192:168:16:31/128"
+    assigned_object:
+      name: Loopback0
+      device: testbed-switch-oob
+
+- device:
+    name: testbed-switch-oob
+    oob_ip: 172.16.0.31/20
+    primary_ip4: 192.168.16.31/32
+    primary_ip6: "fda6:f659:8c2b::192:168:16:31/128"
+
+- device_interface:
+    device: testbed-switch-oob
+    name: eth0
+    mode: access
+    untagged_vlan:
+      name: OOB Testbed
+    tags:
+      - managed-by-osism
+    primary_mac_address: "F8:1D:7C:93:A6:2B"

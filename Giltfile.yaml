@@ -1,0 +1,10 @@
+---
+giltDir: ~/.gilt/clone
+debug: false
+parallel: true
+repositories:
+  - git: https://github.com/osism/testbed
+    version: main
+    sources:
+      - src: netbox
+        dstdir: example
