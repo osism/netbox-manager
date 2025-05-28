@@ -5,6 +5,7 @@ import glob
 from itertools import groupby
 import os
 import pkg_resources
+import platform
 import signal
 import sys
 import tarfile
@@ -462,6 +463,11 @@ def export(
         logger.info(f"Export completed: {output_file}")
 
         if image:
+            # Check if running on Linux
+            if platform.system() != "Linux":
+                logger.error("Creating ext4 images is only supported on Linux systems")
+                raise typer.Exit(1)
+
             # Create 100MB image file
             logger.info(f"Creating 100MB ext4 image: {image_file}")
             os.system(f"dd if=/dev/zero of={image_file} bs=1M count=100 2>/dev/null")
