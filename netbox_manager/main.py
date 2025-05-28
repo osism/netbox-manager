@@ -427,8 +427,13 @@ def export(
         False,
         "--image",
         "-i",
-        help="Create a 100MB ext4 image file containing the tarball",
-    )
+        help="Create an ext4 image file containing the tarball",
+    ),
+    image_size: int = typer.Option(
+        100,
+        "--image-size",
+        help="Size of the ext4 image in MB (default: 100)",
+    ),
 ) -> None:
     """Export devicetypes, moduletypes, and resources to netbox-export.tar.gz."""
     log_fmt = (
@@ -468,9 +473,11 @@ def export(
                 logger.error("Creating ext4 images is only supported on Linux systems")
                 raise typer.Exit(1)
 
-            # Create 100MB image file
-            logger.info(f"Creating 100MB ext4 image: {image_file}")
-            os.system(f"dd if=/dev/zero of={image_file} bs=1M count=100 2>/dev/null")
+            # Create image file with specified size
+            logger.info(f"Creating {image_size}MB ext4 image: {image_file}")
+            os.system(
+                f"dd if=/dev/zero of={image_file} bs=1M count={image_size} 2>/dev/null"
+            )
 
             # Create ext4 filesystem
             logger.info("Creating ext4 filesystem")
@@ -507,7 +514,7 @@ def export(
             os.remove(output_file)
 
             logger.info(
-                f"Export completed: {image_file} (100MB ext4 image containing {output_file})"
+                f"Export completed: {image_file} ({image_size}MB ext4 image containing {output_file})"
             )
 
     except Exception as e:
