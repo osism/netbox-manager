@@ -19,7 +19,6 @@ from dynaconf import Dynaconf, Validator, ValidationError
 import git
 from jinja2 import Template
 from loguru import logger
-import pynetbox
 import typer
 import yaml
 
@@ -35,7 +34,7 @@ settings = Dynaconf(
     load_dotenv=True,
 )
 
-# NOTE: lazy validate configuration
+# NOTE: Register validators for common settings
 settings.validators.register(
     Validator("DEVICETYPE_LIBRARY", is_type_of=str)
     | Validator("DEVICETYPE_LIBRARY", is_type_of=None, default=None),
@@ -43,8 +42,6 @@ settings.validators.register(
     | Validator("MODULETYPE_LIBRARY", is_type_of=None, default=None),
     Validator("RESOURCES", is_type_of=str)
     | Validator("RESOURCES", is_type_of=None, default=None),
-    Validator("TOKEN", is_type_of=str),
-    Validator("URL", is_type_of=str),
     Validator("IGNORE_SSL_ERRORS", is_type_of=bool)
     | Validator(
         "IGNORE_SSL_ERRORS",
@@ -61,13 +58,19 @@ settings.validators.register(
     ),
 )
 
-try:
-    settings.validators.validate_all()
-except ValidationError as e:
-    logger.error(f"Error validating configuration: {e.details}")
-    raise typer.Exit()
 
-nb = pynetbox.api(settings.URL, token=settings.TOKEN)
+def validate_netbox_connection():
+    """Validate NetBox connection settings."""
+    settings.validators.register(
+        Validator("TOKEN", is_type_of=str),
+        Validator("URL", is_type_of=str),
+    )
+    try:
+        settings.validators.validate_all()
+    except ValidationError as e:
+        logger.error(f"Error validating NetBox connection settings: {e.details}")
+        raise typer.Exit()
+
 
 inventory = {
     "all": {
@@ -91,26 +94,6 @@ playbook_template = """
 
   tasks:
     {{ tasks | indent(4) }}
-"""
-
-playbook_wait = f"""
-- name: Wait for NetBox service
-  hosts: localhost
-  gather_facts: false
-
-  tasks:
-    - name: Wait for NetBox service REST API
-      ansible.builtin.uri:
-        url: "{settings.URL.rstrip('/')}/api/"
-        headers:
-          Authorization: "Token {settings.TOKEN}"
-          Accept: application/json
-        status_code: [200]
-        validate_certs: {not settings.IGNORE_SSL_ERRORS}
-      register: result
-      retries: 60
-      delay: 5
-      until: result.status == 200 or result.status == 403
 """
 
 
@@ -216,6 +199,9 @@ def _run_main(
     logger.remove()
     logger.add(sys.stderr, format=log_fmt, level=log_level, colorize=True)
 
+    # Validate NetBox connection settings for run command
+    validate_netbox_connection()
+
     # install netbox.netbox collection
     # ansible-galaxy collection install netbox.netbox
 
@@ -270,6 +256,27 @@ def _run_main(
     # wait for NetBox service
     if wait:
         logger.info("Wait for NetBox service")
+
+        # Create playbook_wait with validated settings
+        playbook_wait = f"""
+- name: Wait for NetBox service
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Wait for NetBox service REST API
+      ansible.builtin.uri:
+        url: "{settings.URL.rstrip('/')}/api/"
+        headers:
+          Authorization: "Token {settings.TOKEN}"
+          Accept: application/json
+        status_code: [200]
+        validate_certs: {not settings.IGNORE_SSL_ERRORS}
+      register: result
+      retries: 60
+      delay: 5
+      until: result.status == 200 or result.status == 403
+"""
 
         with tempfile.TemporaryDirectory() as temp_dir:
             with tempfile.NamedTemporaryFile(
