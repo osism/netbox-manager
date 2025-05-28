@@ -1,0 +1,60 @@
+---
+- device_interface:
+    device: testbed-switch-0
+    name: Loopback0
+    type: virtual
+    enabled: true
+
+- cable:
+    type: cat6a
+    termination_a_type: dcim.interface
+    termination_a:
+      device: testbed-switch-oob
+      name: Ethernet1
+    termination_b_type: dcim.interface
+    termination_b:
+      device: testbed-switch-0
+      name: eth0
+
+- ip_address:
+    tenant: Testbed
+    address: 172.16.0.27/20
+    assigned_object:
+      name: eth0
+      device: testbed-switch-0
+
+- ip_address:
+    tenant: Testbed
+    address: 192.168.16.27/32
+    assigned_object:
+      name: Loopback0
+      device: testbed-switch-0
+
+- ip_address:
+    tenant: Testbed
+    address: "fda6:f659:8c2b::192:168:16:27/128"
+    assigned_object:
+      name: Loopback0
+      device: testbed-switch-0
+
+- device:
+    name: testbed-switch-0
+    oob_ip: 172.16.0.27/20
+    primary_ip4: 192.168.16.27/32
+    primary_ip6: "fda6:f659:8c2b::192:168:16:27/128"
+
+- mac_address:
+    mac_address: "4E:A2:D7:B8:F3:C6"
+    assigned_object:
+      device: testbed-switch-0
+      name: eth0
+
+- device_interface:
+    device: testbed-switch-0
+    name: eth0
+    mode: access
+    untagged_vlan:
+      name: OOB Testbed
+    tags:
+      - managed-by-osism
+    primary_mac_address: "4E:A2:D7:B8:F3:C6"

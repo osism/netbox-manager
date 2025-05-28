@@ -16,3 +16,6 @@ setuptools = "==80.9.0"
 sushy = "==5.6.0"
 typer = "==0.16.0"
 yamale = "==6.0.0"
+
+[dev-packages]
+python-gilt = "==2.2.4"

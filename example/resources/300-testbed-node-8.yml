@@ -1,0 +1,134 @@
+---
+- device_interface:
+    device: testbed-node-8
+    name: Loopback0
+    type: virtual
+    enabled: true
+    tags:
+      - managed-by-osism
+
+- cable:
+    type: mmf-om4
+    termination_a_type: dcim.interface
+    termination_a:
+      device: testbed-switch-0
+      name: Ethernet52
+    termination_b_type: dcim.interface
+    termination_b:
+      device: testbed-node-8
+      name: Ethernet3
+
+- cable:
+    type: mmf-om4
+    termination_a_type: dcim.interface
+    termination_a:
+      device: testbed-switch-1
+      name: Ethernet52
+    termination_b_type: dcim.interface
+    termination_b:
+      device: testbed-node-8
+      name: Ethernet4
+
+- cable:
+    type: cat6a
+    termination_a_type: dcim.interface
+    termination_a:
+      device: testbed-switch-oob
+      name: Ethernet18
+    termination_b_type: dcim.interface
+    termination_b:
+      device: testbed-node-8
+      name: Ethernet0
+
+- ip_address:
+    tenant: Testbed
+    address: 172.16.0.18/20
+    assigned_object:
+      name: Ethernet0
+      device: testbed-node-8
+
+- ip_address:
+    tenant: Testbed
+    address: 192.168.16.18/32
+    assigned_object:
+      name: Loopback0
+      device: testbed-node-8
+
+- mac_address:
+    mac_address: "18:C0:86:54:E3:2C"
+    assigned_object:
+      device: testbed-node-8
+      name: Ethernet0
+
+- mac_address:
+    mac_address: "18:C0:86:9B:67:F1"
+    assigned_object:
+      device: testbed-node-8
+      name: Ethernet1
+
+- mac_address:
+    mac_address: "18:C0:86:3D:A8:BE"
+    assigned_object:
+      device: testbed-node-8
+      name: Ethernet2
+
+- mac_address:
+    mac_address: "18:C0:86:F2:14:87"
+    assigned_object:
+      device: testbed-node-8
+      name: Ethernet3
+
+- mac_address:
+    mac_address: "18:C0:86:7A:DF:C9"
+    assigned_object:
+      device: testbed-node-8
+      name: Ethernet4
+
+- ip_address:
+    tenant: Testbed
+    address: "fda6:f659:8c2b::192:168:16:18/128"
+    assigned_object:
+      name: Loopback0
+      device: testbed-node-8
+
+- device:
+    name: testbed-node-8
+    oob_ip: 172.16.0.18/20
+    primary_ip4: 192.168.16.18/32
+    primary_ip6: "fda6:f659:8c2b::192:168:16:18/128"
+
+- device_interface:
+    device: testbed-node-8
+    name: Ethernet0
+    mode: access
+    untagged_vlan:
+      name: OOB Testbed
+    tags:
+      - managed-by-osism
+    primary_mac_address: "18:C0:86:54:E3:2C"
+
+- device_interface:
+    device: testbed-node-8
+    name: Ethernet1
+    primary_mac_address: "18:C0:86:9B:67:F1"
+
+- device_interface:
+    device: testbed-node-8
+    name: Ethernet2
+    primary_mac_address: "18:C0:86:3D:A8:BE"
+
+- device_interface:
+    device: testbed-node-8
+    name: Ethernet3
+    primary_mac_address: "18:C0:86:F2:14:87"
+    label: leaf1
+    tags:
+      - managed-by-osism
+
+- device_interface:
+    device: testbed-node-8
+    name: Ethernet4
+    primary_mac_address: "18:C0:86:7A:DF:C9"
+    label: leaf2
+    tags:
+      - managed-by-osism

@@ -1,14 +1,13 @@
 ---
-manufacturer: Cisco
-model: Manager
-slug: manager
+manufacturer: Other
+model: Baremetal-Housing
+slug: baremetal-housing
+subdevice_role: parent
 u_height: 1
 is_full_depth: true
 console-ports: []
 power-ports:
   - name: PS1
-    type: iec-60320-c14
-  - name: PS2
     type: iec-60320-c14
 interfaces:
   - name: Ethernet0
