@@ -414,7 +414,14 @@ def run_command(
 @app.command(
     help="Export devicetypes, moduletypes, and resources to netbox-export.tar.gz"
 )
-def export() -> None:
+def export(
+    image: bool = typer.Option(
+        False,
+        "--image",
+        "-i",
+        help="Create a 100MB ext4 image file containing the tarball",
+    )
+) -> None:
     """Export devicetypes, moduletypes, and resources to netbox-export.tar.gz."""
     log_fmt = (
         "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | "
@@ -436,6 +443,8 @@ def export() -> None:
         raise typer.Exit(1)
 
     output_file = "netbox-export.tar.gz"
+    image_file = "netbox-export.img"
+    mount_point = "/tmp/netbox-export-mount"
 
     try:
         with tarfile.open(output_file, "w:gz") as tar:
@@ -444,8 +453,52 @@ def export() -> None:
                 tar.add(directory, arcname=os.path.basename(directory))
 
         logger.info(f"Export completed: {output_file}")
+
+        if image:
+            # Create 100MB image file
+            logger.info(f"Creating 100MB ext4 image: {image_file}")
+            os.system(f"dd if=/dev/zero of={image_file} bs=1M count=100 2>/dev/null")
+
+            # Create ext4 filesystem
+            logger.info("Creating ext4 filesystem")
+            os.system(f"mkfs.ext4 -q {image_file}")
+
+            # Create mount point
+            os.makedirs(mount_point, exist_ok=True)
+
+            # Mount the image
+            logger.info(f"Mounting image to {mount_point}")
+            mount_result = os.system(f"sudo mount -o loop {image_file} {mount_point}")
+
+            if mount_result != 0:
+                logger.error("Failed to mount image (requires sudo)")
+                raise typer.Exit(1)
+
+            try:
+                # Copy tarball to mounted image
+                logger.info("Copying tarball to image")
+                os.system(f"sudo cp {output_file} {mount_point}/")
+
+                # Sync and unmount
+                os.system("sync")
+                logger.info("Unmounting image")
+                os.system(f"sudo umount {mount_point}")
+
+            except Exception as e:
+                logger.error(f"Error during copy: {e}")
+                os.system(f"sudo umount {mount_point}")
+                raise
+
+            # Clean up
+            os.rmdir(mount_point)
+            os.remove(output_file)
+
+            logger.info(
+                f"Export completed: {image_file} (100MB ext4 image containing {output_file})"
+            )
+
     except Exception as e:
-        logger.error(f"Failed to create archive: {e}")
+        logger.error(f"Failed to create export: {e}")
         raise typer.Exit(1)
 
 
