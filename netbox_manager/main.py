@@ -103,7 +103,7 @@ def get_leading_number(file: str) -> str:
     return file.split("-")[0]
 
 
-def handle_file(file: str, dryrun: bool) -> None:
+def handle_file(file: str, dryrun: bool, task_filter: Optional[str] = None) -> None:
     template = Template(playbook_template)
 
     template_vars = {}
@@ -120,6 +120,13 @@ def handle_file(file: str, dryrun: bool) -> None:
                 task = {"ansible.builtin.debug": value}
                 template_tasks.append(task)
             else:
+                # Apply task filter if specified
+                if task_filter and key != task_filter:
+                    logger.debug(
+                        f"Skipping task of type '{key}' (filter: {task_filter})"
+                    )
+                    continue
+
                 state = "present"
                 if "state" in value:
                     state = value["state"]
@@ -138,6 +145,11 @@ def handle_file(file: str, dryrun: bool) -> None:
                     },
                 }
                 template_tasks.append(task)
+
+    # Skip file if no tasks remain after filtering
+    if not template_tasks:
+        logger.info(f"No tasks to execute in {file} after filtering")
+        return
 
     playbook_resources = template.render(
         {
@@ -198,6 +210,7 @@ def _run_main(
     skipmtl: bool = False,
     skipres: bool = False,
     wait: bool = True,
+    task_filter: Optional[str] = None,
 ) -> None:
     start = time.time()
 
@@ -379,7 +392,7 @@ def _run_main(
                     max_workers=parallel
                 ) as executor:
                     futures = [
-                        executor.submit(handle_file, file, dryrun)
+                        executor.submit(handle_file, file, dryrun, task_filter)
                         for file in files_process
                     ]
                     for future in concurrent.futures.as_completed(futures):
@@ -416,10 +429,23 @@ def run_command(
     skipmtl: Annotated[bool, typer.Option(help="Skip moduletype library")] = False,
     skipres: Annotated[bool, typer.Option(help="Skip resources")] = False,
     wait: Annotated[bool, typer.Option(help="Wait for NetBox service")] = True,
+    task_filter: Annotated[
+        Optional[str], typer.Option(help="Filter tasks by type (e.g., 'device')")
+    ] = None,
 ) -> None:
     """Process NetBox resources, device types, and module types."""
     _run_main(
-        always, debug, dryrun, limit, parallel, version, skipdtl, skipmtl, skipres, wait
+        always,
+        debug,
+        dryrun,
+        limit,
+        parallel,
+        version,
+        skipdtl,
+        skipmtl,
+        skipres,
+        wait,
+        task_filter,
     )
 
 
