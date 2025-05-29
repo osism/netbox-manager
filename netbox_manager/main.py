@@ -2,9 +2,9 @@
 
 import concurrent.futures
 import glob
+from importlib import metadata
 from itertools import groupby
 import os
-import pkg_resources
 import platform
 import signal
 import subprocess
@@ -195,7 +195,7 @@ def init_logger(debug: bool = False) -> None:
 
 def callback_version(value: bool):
     if value:
-        print(f"Version {pkg_resources.get_distribution('netbox-manager').version}")
+        print(f"Version {metadata.version('netbox-manager')}")
         raise typer.Exit()
 
 
