@@ -450,9 +450,10 @@ def run_command(
 
 
 @app.command(
-    help="Export devicetypes, moduletypes, and resources to netbox-export.tar.gz"
+    name="export-archive",
+    help="Export devicetypes, moduletypes, and resources to netbox-export.tar.gz",
 )
-def export(
+def export_archive(
     image: bool = typer.Option(
         False,
         "--image",
@@ -548,8 +549,11 @@ def export(
         raise typer.Exit(1)
 
 
-@app.command(help="Import and sync content from a netbox-export.tar.gz file")
-def import_netbox(
+@app.command(
+    name="import-archive",
+    help="Import and sync content from a netbox-export.tar.gz file",
+)
+def import_archive(
     input_file: str = typer.Option(
         "netbox-export.tar.gz",
         "--input",
