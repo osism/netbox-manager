@@ -619,6 +619,12 @@ def import_archive(
             raise typer.Exit(1)
 
 
+@app.command(name="version", help="Show version information")
+def version_command() -> None:
+    """Display version information for netbox-manager."""
+    print(f"netbox-manager {metadata.version('netbox-manager')}")
+
+
 @app.callback(invoke_without_command=True)
 def main_callback(ctx: typer.Context):
     """Handle default behavior when no command is specified."""
