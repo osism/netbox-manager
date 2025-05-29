@@ -7,6 +7,7 @@ import os
 import pkg_resources
 import platform
 import signal
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -167,6 +168,19 @@ def signal_handler_sigint(sig, frame):
     raise typer.Exit()
 
 
+def init_logger(debug: bool = False) -> None:
+    """Initialize logger with consistent format and level."""
+    log_fmt = (
+        "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | "
+        "<level>{message}</level>"
+    )
+
+    log_level = "DEBUG" if debug else "INFO"
+
+    logger.remove()
+    logger.add(sys.stderr, format=log_fmt, level=log_level, colorize=True)
+
+
 def callback_version(value: bool):
     if value:
         print(f"Version {pkg_resources.get_distribution('netbox-manager').version}")
@@ -187,18 +201,8 @@ def _run_main(
 ) -> None:
     start = time.time()
 
-    log_fmt = (
-        "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | "
-        "<level>{message}</level>"
-    )
-
-    if debug:
-        log_level = "DEBUG"
-    else:
-        log_level = "INFO"
-
-    logger.remove()
-    logger.add(sys.stderr, format=log_fmt, level=log_level, colorize=True)
+    # Initialize logger
+    init_logger(debug)
 
     # Validate NetBox connection settings for run command
     validate_netbox_connection()
@@ -436,12 +440,8 @@ def export(
     ),
 ) -> None:
     """Export devicetypes, moduletypes, and resources to netbox-export.tar.gz."""
-    log_fmt = (
-        "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | "
-        "<level>{message}</level>"
-    )
-    logger.remove()
-    logger.add(sys.stderr, format=log_fmt, level="INFO", colorize=True)
+    # Initialize logger
+    init_logger()
 
     directories = []
     if settings.DEVICETYPE_LIBRARY and os.path.exists(settings.DEVICETYPE_LIBRARY):
@@ -520,6 +520,73 @@ def export(
     except Exception as e:
         logger.error(f"Failed to create export: {e}")
         raise typer.Exit(1)
+
+
+@app.command(help="Import and sync content from a netbox-export.tar.gz file")
+def import_netbox(
+    input_file: str = typer.Option(
+        "netbox-export.tar.gz",
+        "--input",
+        "-i",
+        help="Input tarball file to import (default: netbox-export.tar.gz)",
+    ),
+    destination: str = typer.Option(
+        "/opt/configuration/netbox",
+        "--destination",
+        "-d",
+        help="Destination directory for imported content (default: /opt/configuration/netbox)",
+    ),
+) -> None:
+    """Import and sync content from a netbox-export.tar.gz file to local directories."""
+    # Initialize logger
+    init_logger()
+
+    if not os.path.exists(input_file):
+        logger.error(f"Input file not found: {input_file}")
+        raise typer.Exit(1)
+
+    # Create temporary directory for extraction
+    with tempfile.TemporaryDirectory() as temp_dir:
+        try:
+            logger.info(f"Extracting {input_file} to temporary directory")
+            with tarfile.open(input_file, "r:gz") as tar:
+                tar.extractall(temp_dir)
+
+            # Process each extracted directory
+            for item in os.listdir(temp_dir):
+                source_path = os.path.join(temp_dir, item)
+                if not os.path.isdir(source_path):
+                    continue
+
+                # Target path is the item name under the destination directory
+                target_path = os.path.join(destination, item)
+                logger.info(f"Syncing {item} to {target_path}")
+
+                # Ensure target directory exists
+                os.makedirs(target_path, exist_ok=True)
+
+                # Use rsync to sync directories
+                rsync_cmd = [
+                    "rsync",
+                    "-av",
+                    "--delete",
+                    f"{source_path}/",
+                    f"{target_path}/",
+                ]
+
+                result = subprocess.run(rsync_cmd, capture_output=True, text=True)
+
+                if result.returncode != 0:
+                    logger.error(f"rsync failed: {result.stderr}")
+                    raise typer.Exit(1)
+
+                logger.info(f"Successfully synced {item}")
+
+            logger.info("Import completed successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to import: {e}")
+            raise typer.Exit(1)
 
 
 @app.callback(invoke_without_command=True)
