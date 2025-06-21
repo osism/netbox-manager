@@ -92,7 +92,17 @@ class Repo:
     def get_devices(self, vendors: Optional[list] = None):
         files = []
         discovered_vendors = []
-        vendor_dirs = os.listdir(self.get_devices_path())
+        devices_path = self.get_devices_path()
+
+        # Get all entries in the devices path
+        all_entries = os.listdir(devices_path)
+
+        # Filter to only include actual directories (not files like .gitkeep)
+        vendor_dirs = [
+            entry
+            for entry in all_entries
+            if os.path.isdir(os.path.join(devices_path, entry))
+        ]
 
         for folder in [
             vendor
@@ -104,9 +114,7 @@ class Repo:
             )
             for extension in self.yaml_extensions:
                 files.extend(
-                    glob.glob(
-                        os.path.join(self.get_devices_path(), folder, f"*.{extension}")
-                    )
+                    glob.glob(os.path.join(devices_path, folder, f"*.{extension}"))
                 )
         return files, discovered_vendors
 
