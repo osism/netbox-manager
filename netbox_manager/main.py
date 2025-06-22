@@ -44,6 +44,12 @@ settings.validators.register(
     | Validator("MODULETYPE_LIBRARY", is_type_of=None, default=None),
     Validator("RESOURCES", is_type_of=str)
     | Validator("RESOURCES", is_type_of=None, default=None),
+    Validator("IGNORED_FILES", is_type_of=list)
+    | Validator(
+        "IGNORED_FILES",
+        is_type_of=None,
+        default=["000-external.yml", "000-external.yaml"],
+    ),
     Validator("IGNORE_SSL_ERRORS", is_type_of=bool)
     | Validator(
         "IGNORE_SSL_ERRORS",
@@ -211,6 +217,7 @@ def _run_main(
     skipres: bool = False,
     wait: bool = True,
     task_filter: Optional[str] = None,
+    include_ignored_files: bool = False,
 ) -> None:
     start = time.time()
 
@@ -373,6 +380,22 @@ def _run_main(
         else:
             files_filtered = files
 
+        # Filter out ignored files unless include_ignored_files is True
+        if not include_ignored_files:
+            ignored_files = settings.IGNORED_FILES or []
+            files_filtered = [
+                f
+                for f in files_filtered
+                if not any(
+                    os.path.basename(f) == ignored_file
+                    for ignored_file in ignored_files
+                )
+            ]
+            if debug and len(files) != len(files_filtered):
+                logger.debug(
+                    f"Filtered out {len(files) - len(files_filtered)} ignored files"
+                )
+
         files_filtered.sort(key=get_leading_number)
         files_grouped = []
         for _, group in groupby(files_filtered, key=get_leading_number):
@@ -432,6 +455,9 @@ def run_command(
     task_filter: Annotated[
         Optional[str], typer.Option(help="Filter tasks by type (e.g., 'device')")
     ] = None,
+    include_ignored_files: Annotated[
+        bool, typer.Option(help="Include files that are normally ignored")
+    ] = False,
 ) -> None:
     """Process NetBox resources, device types, and module types."""
     _run_main(
@@ -446,6 +472,7 @@ def run_command(
         skipres,
         wait,
         task_filter,
+        include_ignored_files,
     )
 
 
