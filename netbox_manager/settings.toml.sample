@@ -1,5 +1,6 @@
 DEVICETYPE_LIBRARY = "example/devicetypes"
 IGNORE_SSL_ERRORS = true
+IGNORED_FILES = ["000-external.yml", "000-external.yaml"]
 MODULETYPE_LIBRARY = "example/moduletypes"
 RESOURCES = "example/resources"
 TOKEN = ""
