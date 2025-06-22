@@ -445,7 +445,9 @@ def _run_main(
 
         # Filter out ignored files unless include_ignored_files is True
         if not include_ignored_files:
-            ignored_files = settings.IGNORED_FILES or []
+            ignored_files = getattr(
+                settings, "IGNORED_FILES", ["000-external.yml", "000-external.yaml"]
+            )
             files_filtered = [
                 f
                 for f in files_filtered
