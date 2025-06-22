@@ -109,7 +109,31 @@ def get_leading_number(file: str) -> str:
     return file.split("-")[0]
 
 
-def handle_file(file: str, dryrun: bool, task_filter: Optional[str] = None) -> None:
+def find_device_names_in_structure(data: dict) -> list[str]:
+    """Recursively search for device names in a nested data structure."""
+    device_names = []
+
+    def _recursive_search(obj):
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                if key == "device" and isinstance(value, str):
+                    device_names.append(value)
+                elif isinstance(value, (dict, list)):
+                    _recursive_search(value)
+        elif isinstance(obj, list):
+            for item in obj:
+                _recursive_search(item)
+
+    _recursive_search(data)
+    return device_names
+
+
+def handle_file(
+    file: str,
+    dryrun: bool,
+    task_filter: Optional[str] = None,
+    device_filters: Optional[list[str]] = None,
+) -> None:
     template = Template(playbook_template)
 
     template_vars = {}
@@ -132,6 +156,44 @@ def handle_file(file: str, dryrun: bool, task_filter: Optional[str] = None) -> N
                         f"Skipping task of type '{key}' (filter: {task_filter})"
                     )
                     continue
+
+                # Apply device filter if specified
+                if device_filters:
+                    device_names = []
+
+                    # Check if task has a 'device' field (for tasks that reference a device)
+                    if "device" in value:
+                        device_names.append(value["device"])
+                    # Check if task has a 'name' field and this is a device creation task
+                    elif key == "device" and "name" in value:
+                        device_names.append(value["name"])
+
+                    # Search for device names in nested structures
+                    nested_device_names = find_device_names_in_structure(value)
+                    device_names.extend(nested_device_names)
+
+                    # If we found device names, check if any matches the filters
+                    if device_names:
+                        task_matches_filter = False
+                        for device_name in device_names:
+                            if any(
+                                filter_device in device_name
+                                for filter_device in device_filters
+                            ):
+                                task_matches_filter = True
+                                break
+
+                        if not task_matches_filter:
+                            logger.debug(
+                                f"Skipping task with devices '{device_names}' (device filters: {device_filters})"
+                            )
+                            continue
+                    else:
+                        # If no device name found and device filters are active, skip this task
+                        logger.debug(
+                            f"Skipping task of type '{key}' with no device reference (device filters active)"
+                        )
+                        continue
 
                 state = "present"
                 if "state" in value:
@@ -218,6 +280,7 @@ def _run_main(
     wait: bool = True,
     task_filter: Optional[str] = None,
     include_ignored_files: bool = False,
+    filter_device: Optional[list[str]] = None,
 ) -> None:
     start = time.time()
 
@@ -415,7 +478,9 @@ def _run_main(
                     max_workers=parallel
                 ) as executor:
                     futures = [
-                        executor.submit(handle_file, file, dryrun, task_filter)
+                        executor.submit(
+                            handle_file, file, dryrun, task_filter, filter_device
+                        )
                         for file in files_process
                     ]
                     for future in concurrent.futures.as_completed(futures):
@@ -458,6 +523,10 @@ def run_command(
     include_ignored_files: Annotated[
         bool, typer.Option(help="Include files that are normally ignored")
     ] = False,
+    filter_device: Annotated[
+        Optional[list[str]],
+        typer.Option(help="Filter tasks by device name (can be used multiple times)"),
+    ] = None,
 ) -> None:
     """Process NetBox resources, device types, and module types."""
     _run_main(
@@ -473,6 +542,7 @@ def run_command(
         wait,
         task_filter,
         include_ignored_files,
+        filter_device,
     )
 
 
