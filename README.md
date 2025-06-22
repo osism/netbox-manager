@@ -1,5 +1,11 @@
 # netbox-manager
 
+A Python CLI tool that automates NetBox infrastructure management through
+YAML-based configuration files. It streamlines the process of importing
+device types, module types, and managing NetBox resources using Ansible
+playbooks, making it easy to define and deploy complex network infrastructures
+with consistent configuration management.
+
 ## Installation
 
 ```
