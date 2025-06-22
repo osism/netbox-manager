@@ -12,7 +12,7 @@ import sys
 import tarfile
 import tempfile
 import time
-from typing import Optional
+from typing import Any, Optional
 from typing_extensions import Annotated
 import warnings
 
@@ -23,6 +23,7 @@ from jinja2 import Template
 from loguru import logger
 import typer
 import yaml
+from copy import deepcopy
 
 from .dtl import Repo, NetBox
 
@@ -44,6 +45,8 @@ settings.validators.register(
     | Validator("MODULETYPE_LIBRARY", is_type_of=None, default=None),
     Validator("RESOURCES", is_type_of=str)
     | Validator("RESOURCES", is_type_of=None, default=None),
+    Validator("VARS", is_type_of=str)
+    | Validator("VARS", is_type_of=None, default=None),
     Validator("IGNORED_FILES", is_type_of=list)
     | Validator(
         "IGNORED_FILES",
@@ -128,6 +131,54 @@ def find_device_names_in_structure(data: dict) -> list[str]:
     return device_names
 
 
+def deep_merge(dict1: dict, dict2: dict) -> dict:
+    """Deep merge two dictionaries, with dict2 values taking precedence."""
+    result = deepcopy(dict1)
+
+    for key, value in dict2.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge(result[key], value)
+        else:
+            result[key] = deepcopy(value)
+
+    return result
+
+
+def load_global_vars() -> dict:
+    """Load and merge global variables from the VARS directory."""
+    global_vars: dict[str, Any] = {}
+
+    if not settings.VARS:
+        return global_vars
+
+    vars_dir = settings.VARS
+    if not os.path.exists(vars_dir):
+        logger.debug(f"VARS directory {vars_dir} does not exist, skipping global vars")
+        return global_vars
+
+    # Find all YAML files in the vars directory
+    yaml_files = []
+    for ext in ["*.yml", "*.yaml"]:
+        yaml_files.extend(glob.glob(os.path.join(vars_dir, ext)))
+
+    # Sort files by filename for consistent order
+    yaml_files.sort()
+
+    logger.debug(f"Loading global vars from {len(yaml_files)} files in {vars_dir}")
+
+    for yaml_file in yaml_files:
+        try:
+            with open(yaml_file, "r", encoding="utf-8") as f:
+                file_vars = yaml.safe_load(f)
+                if file_vars:
+                    logger.debug(f"Loading vars from {os.path.basename(yaml_file)}")
+                    global_vars = deep_merge(global_vars, file_vars)
+        except Exception as e:
+            logger.error(f"Error loading vars from {yaml_file}: {e}")
+
+    return global_vars
+
+
 def handle_file(
     file: str,
     dryrun: bool,
@@ -136,7 +187,8 @@ def handle_file(
 ) -> None:
     template = Template(playbook_template)
 
-    template_vars = {}
+    # Load global vars first
+    template_vars = load_global_vars()
     template_tasks = []
 
     logger.info(f"Handle file {file}")
@@ -145,7 +197,8 @@ def handle_file(
         for rtask in data:
             key, value = next(iter(rtask.items()))
             if key == "vars":
-                template_vars = value
+                # Merge local vars with global vars, local vars take precedence
+                template_vars = deep_merge(template_vars, value)
             elif key == "debug":
                 task = {"ansible.builtin.debug": value}
                 template_tasks.append(task)
