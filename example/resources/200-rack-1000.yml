@@ -18,14 +18,18 @@
     site: "{{ site }}"
     location: "{{ location }}"
     rack: "{{ rack }}"
-    device_type: edgecore-7726-32x-o-ac-b
+    device_type: edgecore-7726-32x-o-ac-f
     device_role: leaf
     face: rear
     position: 27
     tags:
+      - managed-by-metalbox
       - managed-by-osism
     custom_fields:
       dnsmasq_dhcp_tag: edgecore
+      sonic_parameters:
+        hwsku: Accton-AS7726-32X
+        version: 4.5.0
 
 
 - device:
@@ -34,14 +38,18 @@
     site: "{{ site }}"
     location: "{{ location }}"
     rack: "{{ rack }}"
-    device_type: edgecore-7726-32x-o-ac-b
+    device_type: edgecore-7726-32x-o-ac-f
     device_role: leaf
     face: rear
     position: 28
     tags:
+      - managed-by-metalbox
       - managed-by-osism
     custom_fields:
       dnsmasq_dhcp_tag: edgecore
+      sonic_parameters:
+        hwsku: Accton-AS7726-32X
+        version: 4.5.0
 
 - device:
     name: testbed-switch-2
@@ -49,14 +57,18 @@
     site: "{{ site }}"
     location: "{{ location }}"
     rack: "{{ rack }}"
-    device_type: edgecore-7726-32x-o-ac-b
+    device_type: edgecore-7726-32x-o-ac-f
     device_role: spine
     face: rear
     position: 29
     tags:
+      - managed-by-metalbox
       - managed-by-osism
     custom_fields:
       dnsmasq_dhcp_tag: edgecore
+      sonic_parameters:
+        hwsku: Accton-AS7726-32X
+        version: 4.5.0
 
 - device:
     name: testbed-switch-3
@@ -64,14 +76,18 @@
     site: "{{ site }}"
     location: "{{ location }}"
     rack: "{{ rack }}"
-    device_type: edgecore-7726-32x-o-ac-b
+    device_type: edgecore-7726-32x-o-ac-f
     device_role: spine
     face: rear
     position: 30
     tags:
+      - managed-by-metalbox
       - managed-by-osism
     custom_fields:
       dnsmasq_dhcp_tag: edgecore
+      sonic_parameters:
+        hwsku: Accton-AS7726-32X
+        version: 4.5.0
 
 - device:
     name: testbed-switch-oob
@@ -79,15 +95,19 @@
     site: "{{ site }}"
     location: "{{ location }}"
     rack: "{{ rack }}"
-    device_type: edgecore-5835-54t-o-ac-f
+    device_type: edgecore-5835-54x-o-ac-f
     device_role: accessleaf
     face: rear
     position: 31
     tags:
+      - managed-by-metalbox
       - managed-by-osism
       - out-of-band
     custom_fields:
       dnsmasq_dhcp_tag: edgecore
+      sonic_parameters:
+        hwsku: Accton-AS5835-54T
+        version: 4.5.0
 
 - device:
     name: testbed-manager
