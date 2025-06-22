@@ -151,11 +151,16 @@ def handle_file(
                 template_tasks.append(task)
             else:
                 # Apply task filter if specified
-                if task_filter and key != task_filter:
-                    logger.debug(
-                        f"Skipping task of type '{key}' (filter: {task_filter})"
-                    )
-                    continue
+                if task_filter:
+                    # Normalize filter to handle both underscore and hyphen variations
+                    normalized_filter = task_filter.replace("-", "_")
+                    normalized_key = key.replace("-", "_")
+
+                    if normalized_key != normalized_filter:
+                        logger.debug(
+                            f"Skipping task of type '{key}' (filter: {task_filter})"
+                        )
+                        continue
 
                 # Apply device filter if specified
                 if device_filters:
@@ -278,7 +283,7 @@ def _run_main(
     skipmtl: bool = False,
     skipres: bool = False,
     wait: bool = True,
-    task_filter: Optional[str] = None,
+    filter_task: Optional[str] = None,
     include_ignored_files: bool = False,
     filter_device: Optional[list[str]] = None,
 ) -> None:
@@ -481,7 +486,7 @@ def _run_main(
                 ) as executor:
                     futures = [
                         executor.submit(
-                            handle_file, file, dryrun, task_filter, filter_device
+                            handle_file, file, dryrun, filter_task, filter_device
                         )
                         for file in files_process
                     ]
@@ -519,8 +524,9 @@ def run_command(
     skipmtl: Annotated[bool, typer.Option(help="Skip moduletype library")] = False,
     skipres: Annotated[bool, typer.Option(help="Skip resources")] = False,
     wait: Annotated[bool, typer.Option(help="Wait for NetBox service")] = True,
-    task_filter: Annotated[
-        Optional[str], typer.Option(help="Filter tasks by type (e.g., 'device')")
+    filter_task: Annotated[
+        Optional[str],
+        typer.Option(help="Filter tasks by type (e.g., 'device', 'device_interface')"),
     ] = None,
     include_ignored_files: Annotated[
         bool, typer.Option(help="Include files that are normally ignored")
@@ -542,7 +548,7 @@ def run_command(
         skipmtl,
         skipres,
         wait,
-        task_filter,
+        filter_task,
         include_ignored_files,
         filter_device,
     )
