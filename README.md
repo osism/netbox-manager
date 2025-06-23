@@ -45,6 +45,44 @@ $ netbox-manager --help
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
+### Limit Functionality
+
+The `--limit` option allows you to process only specific resources by their numeric prefix. The limit is applied at the top level (files and directories in the resources directory) but not to files within directories.
+
+**Examples:**
+
+```bash
+# Process only resources starting with "300"
+netbox-manager --limit 300
+
+# Process only resources starting with "200"
+netbox-manager --limit 200
+```
+
+**Behavior:**
+
+- **Files**: `--limit 300` processes `300-devices.yml` but skips `200-racks.yml`
+- **Directories**: `--limit 300` processes the entire `300-devices/` directory
+- **Directory contents**: ALL files within `300-devices/` are processed, regardless of their names
+- **Mixed resources**: Both `300-devices.yml` and `300-devices/` would be processed together
+
+**Directory Structure Example:**
+```
+resources/
+├── 200-racks.yml              # Skipped with --limit 300
+├── 300-devices.yml            # Processed with --limit 300
+├── 300-networks/              # Processed with --limit 300
+│   ├── cables.yml            # Processed (all files in directory)
+│   ├── interfaces.yml        # Processed (all files in directory)
+│   └── vlans.yml             # Processed (all files in directory)
+└── 400-maintenance.yml        # Skipped with --limit 300
+```
+
+This approach allows you to:
+- Test specific phases of your deployment (`--limit 100` for infrastructure only)
+- Rerun specific resource groups after changes
+- Organize complex configurations into directories without losing limit functionality
+
 ## Variables
 
 netbox-manager supports both local and global variables for flexible configuration management.
@@ -143,18 +181,22 @@ example/
 ├── vars/                 # Global variable files
 │   ├── 000-global.yml   # Base global variables
 │   └── 100-overrides.yml # Environment-specific overrides
-└── resources/            # Numbered resource files
+└── resources/            # Numbered resource files and directories
     ├── 100-initialise.yml          # Base infrastructure
     ├── 200-rack-1000.yml          # Rack and device definitions
     ├── 300-testbed-manager.yml    # Manager configuration
     ├── 300-testbed-node-*.yml     # Node configurations (0-9)
     ├── 300-testbed-switch-*.yml   # Switch configurations (0-3)
-    └── 300-testbed-switch-oob.yml # Out-of-band switch
+    ├── 300-testbed-switch-oob.yml # Out-of-band switch
+    └── 400-networks/               # Directory with network configurations
+        ├── cables.yml
+        ├── interfaces.yml
+        └── vlans.yml
 ```
 
 ### Execution Order
 
-Files are processed by their numeric prefix:
+Files and directories are processed by their numeric prefix. Files within numbered directories are processed together in the same execution group:
 
 1. **100-initialise.yml**: Creates base infrastructure
    - Tenant: `Testbed`
@@ -172,6 +214,48 @@ Files are processed by their numeric prefix:
    - Network interfaces and VLAN assignments
    - IP addresses and MAC addresses
    - Cable connections between devices
+
+4. **400-networks/**: Directory containing all network configuration files
+   - All YAML files within this directory are processed together
+   - Files are sorted alphabetically within the directory (cables.yml, interfaces.yml, vlans.yml)
+
+### Resource Organization
+
+netbox-manager supports two organizational approaches:
+
+**File-based (traditional):**
+```
+resources/
+├── 100-sites.yml
+├── 200-racks.yml
+├── 300-devices.yml
+└── 400-networks.yml
+```
+
+**Directory-based (new):**
+```
+resources/
+├── 100-infrastructure/
+│   ├── sites.yml
+│   └── tenants.yml
+├── 200-physical/
+│   ├── locations.yml
+│   └── racks.yml
+└── 300-devices/
+    ├── managers.yml
+    ├── nodes.yml
+    └── switches.yml
+```
+
+**Mixed approach:**
+```
+resources/
+├── 100-sites.yml          # Single file
+├── 200-physical/          # Directory with multiple files
+│   ├── locations.yml
+│   └── racks.yml
+└── 300-devices.yml        # Back to single file
+```
 
 ### Device Types
 

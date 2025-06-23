@@ -6,6 +6,7 @@ from importlib import metadata
 from itertools import groupby
 import os
 import platform
+import re
 import signal
 import subprocess
 import sys
@@ -108,8 +109,9 @@ playbook_template = """
 """
 
 
-def get_leading_number(file: str) -> str:
-    return file.split("-")[0]
+def get_leading_number(path: str) -> str:
+    basename = os.path.basename(path)
+    return basename.split("-")[0]
 
 
 def find_device_names_in_structure(data: dict) -> list[str]:
@@ -488,13 +490,51 @@ def _run_main(
         logger.info("Manage resources")
 
         files = []
+
+        # Find files directly in resources directory
         for extension in ["yml", "yaml"]:
             try:
-                files.extend(
-                    glob.glob(os.path.join(settings.RESOURCES, f"*.{extension}"))
+                top_level_files = glob.glob(
+                    os.path.join(settings.RESOURCES, f"*.{extension}")
                 )
+                # Apply limit filter at file level
+                if limit:
+                    top_level_files = [
+                        f
+                        for f in top_level_files
+                        if os.path.basename(f).startswith(limit)
+                    ]
+                files.extend(top_level_files)
             except FileNotFoundError:
                 logger.error(f"Could not load resources in {settings.RESOURCES}")
+
+        # Find files in numbered subdirectories (excluding vars directory)
+        vars_dirname = None
+        if settings.VARS:
+            vars_dirname = os.path.basename(settings.VARS)
+
+        try:
+            for item in os.listdir(settings.RESOURCES):
+                item_path = os.path.join(settings.RESOURCES, item)
+                if os.path.isdir(item_path) and (
+                    not vars_dirname or item != vars_dirname
+                ):
+                    # Only process directories that start with a number and hyphen
+                    if re.match(r"^\d+-.+", item):
+                        # Apply limit filter at directory level
+                        if limit and not item.startswith(limit):
+                            continue
+
+                        dir_files = []
+                        for extension in ["yml", "yaml"]:
+                            dir_files.extend(
+                                glob.glob(os.path.join(item_path, f"*.{extension}"))
+                            )
+                        # Sort files within the directory by their basename
+                        dir_files.sort(key=lambda f: os.path.basename(f))
+                        files.extend(dir_files)
+        except FileNotFoundError:
+            pass
 
         if not always:
             files_filtered = [f for f in files if f in files_changed]
@@ -525,15 +565,7 @@ def _run_main(
             files_grouped.append(list(group))
 
         for group in files_grouped:  # type: ignore[assignment]
-            files_process = []
-            for file in group:
-                if limit and not os.path.basename(file).startswith(limit):
-                    logger.info(f"Skipping {os.path.basename(file)}")
-                    continue
-
-                files_process.append(file)
-
-            if files_process:
+            if group:
                 with concurrent.futures.ThreadPoolExecutor(
                     max_workers=parallel
                 ) as executor:
@@ -541,7 +573,7 @@ def _run_main(
                         executor.submit(
                             handle_file, file, dryrun, filter_task, filter_device
                         )
-                        for file in files_process
+                        for file in group
                     ]
                     for future in concurrent.futures.as_completed(futures):
                         future.result()
