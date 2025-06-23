@@ -23,6 +23,7 @@ MODULETYPE_LIBRARY = "example/moduletypes"
 RESOURCES = "example/resources"
 TOKEN = ""
 URL = "https://XXX.netbox.regio.digital"
+VARS = "example/vars"
 VERBOSE = true
 ```
 
@@ -44,6 +45,83 @@ $ netbox-manager --help
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
+## Variables
+
+netbox-manager supports both local and global variables for flexible configuration management.
+
+### Local Variables
+
+Variables can be defined within individual resource files using the `vars` section:
+
+```yaml
+- vars:
+    site: Discworld
+    location: Ankh-Morpork
+    rack: "1000"
+    tenant: Testbed
+
+- device:
+    name: "{{ tenant }}-switch-1"
+    site: "{{ site }}"
+    location: "{{ location }}"
+    rack: "{{ rack }}"
+```
+
+### Global Variables
+
+Global variables are defined in YAML files within the `VARS` directory (configured in settings.toml). These variables are automatically loaded and available in all resource files.
+
+**Global Variable Files (`example/vars/`):**
+
+```yaml
+# 000-global.yml
+site: Discworld
+location: Ankh-Morpork
+rack: "1000"
+tenant: Testbed
+
+networks:
+  oob:
+    vlan: 100
+    subnet: "172.16.0.0/20"
+  management:
+    vlan: 200
+    subnet: "192.168.16.0/20"
+```
+
+```yaml
+# 100-overrides.yml - loaded after 000-global.yml
+networks:
+  oob:
+    description: "Out-of-band management network"
+
+environment: production
+```
+
+**Variable Precedence:**
+1. Global variables are loaded first (sorted by filename)
+2. Later global variable files can override earlier ones
+3. Local `vars` sections in resource files override global variables
+4. Deep merging preserves nested structures
+
+**Usage in Resource Files:**
+```yaml
+# No local vars needed - uses global variables
+- device:
+    name: "{{ tenant }}-node-1"
+    site: "{{ site }}"
+    rack: "{{ rack }}"
+
+# Local vars override global vars
+- vars:
+    rack: "2000"  # Overrides global rack setting
+
+- device:
+    name: "{{ tenant }}-node-2"
+    site: "{{ site }}"        # Still uses global site
+    rack: "{{ rack }}"        # Uses local override
+```
+
 ## Example Configuration
 
 The `example/` directory contains a complete example configuration for a testbed setup with multiple network switches and compute nodes. This configuration demonstrates all key features of netbox-manager.
@@ -62,6 +140,9 @@ example/
 │       ├── manager.yml
 │       └── node.yml
 ├── moduletypes/          # Module definitions (empty)
+├── vars/                 # Global variable files
+│   ├── 000-global.yml   # Base global variables
+│   └── 100-overrides.yml # Environment-specific overrides
 └── resources/            # Numbered resource files
     ├── 100-initialise.yml          # Base infrastructure
     ├── 200-rack-1000.yml          # Rack and device definitions
@@ -78,7 +159,7 @@ Files are processed by their numeric prefix:
 1. **100-initialise.yml**: Creates base infrastructure
    - Tenant: `Testbed`
    - Site: `Discworld`
-   - Location: `Ankh-Morpork`  
+   - Location: `Ankh-Morpork`
    - VLANs: OOB Testbed (VLAN 100)
    - IP ranges: OOB (172.16.0.0/20), Management (192.168.16.0/20), External (192.168.112.0/20)
    - IPv6 range: fda6:f659:8c2b::/48
@@ -98,7 +179,7 @@ Files are processed by their numeric prefix:
 - 1U server with management function
 - 1x 1000Base-T (management), 2x 10GBase-T, 2x 100G QSFP28
 
-**Node (node.yml)**  
+**Node (node.yml)**
 - 1U server for Control/Compute/Storage roles
 - Identical configuration to Manager
 
@@ -111,7 +192,7 @@ Files are processed by their numeric prefix:
 The example implements a typical leaf-spine architecture:
 
 - **2x Leaf Switches** (testbed-switch-0/1): Connection to compute nodes
-- **2x Spine Switches** (testbed-switch-2/3): Interconnect between leafs  
+- **2x Spine Switches** (testbed-switch-2/3): Interconnect between leafs
 - **1x OOB Switch** (testbed-switch-oob): Out-of-band management
 - **1x Manager**: Orchestration and deployment
 - **10x Nodes**: OpenStack Control/Compute/Storage nodes
