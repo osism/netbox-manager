@@ -842,10 +842,10 @@ def _generate_autoconf_tasks() -> list[dict]:
     non_switch_devices = {}
 
     for device in all_devices:
-        if device.device_role and hasattr(device.device_role, "slug"):
-            device_role_slug = device.device_role.slug.lower()
-        elif device.device_role and hasattr(device.device_role, "name"):
-            device_role_slug = device.device_role.name.lower()
+        if device.role and hasattr(device.role, "slug"):
+            device_role_slug = device.role.slug.lower()
+        elif device.role and hasattr(device.role, "name"):
+            device_role_slug = device.role.name.lower()
         else:
             device_role_slug = ""
 
@@ -878,25 +878,27 @@ def _generate_autoconf_tasks() -> list[dict]:
             ):
                 continue
 
-            # Get MAC addresses for this interface
-            mac_addresses = netbox_api.ipam.mac_addresses.filter(
-                interface_id=interface.id
-            )
+            # Check if interface has a MAC address that should be set as primary
+            mac_to_assign = None
+            if interface.mac_address:
+                # Use existing mac_address as primary_mac_address
+                mac_to_assign = interface.mac_address
+            elif interface.mac_addresses and not interface.mac_address:
+                # Use first MAC from mac_addresses list as primary
+                mac_to_assign = interface.mac_addresses[0]
 
-            # If interface has exactly one MAC address and no primary MAC, assign it
-            if len(mac_addresses) == 1 and not interface.mac_address:
-                mac_addr = mac_addresses[0]
+            if mac_to_assign:
                 tasks.append(
                     {
                         "device_interface": {
                             "device": device.name,
                             "name": interface.name,
-                            "primary_mac_address": mac_addr.address,
+                            "primary_mac_address": mac_to_assign,
                         }
                     }
                 )
                 logger.debug(
-                    f"Found MAC assignment: {device.name}:{interface.name} -> {mac_addr.address}"
+                    f"Found MAC assignment: {device.name}:{interface.name} -> {mac_to_assign}"
                 )
 
     # 2. OOB IP assignment from eth0 interfaces
