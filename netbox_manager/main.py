@@ -22,6 +22,7 @@ from dynaconf import Dynaconf, Validator, ValidationError
 import git
 from jinja2 import Template
 from loguru import logger
+import pynetbox
 import typer
 import yaml
 from copy import deepcopy
@@ -807,6 +808,203 @@ def import_archive(
         except Exception as e:
             logger.error(f"Failed to import: {e}")
             raise typer.Exit(1)
+
+
+def _generate_autoconf_tasks() -> list[dict]:
+    """Generate automatic configuration tasks based on NetBox API data."""
+    tasks = []
+
+    # Initialize NetBox API connection
+    netbox_api = pynetbox.api(settings.URL, token=settings.TOKEN)
+    if settings.IGNORE_SSL_ERRORS:
+        netbox_api.http_session.verify = False
+
+    logger.info("Analyzing NetBox data for automatic configuration...")
+
+    # 1. MAC address assignment for interfaces
+    logger.info("Checking interfaces for MAC address assignments...")
+    interfaces = netbox_api.dcim.interfaces.all()
+
+    for interface in interfaces:
+        # Skip virtual interfaces
+        if (
+            interface.type
+            and hasattr(interface.type, "value")
+            and "virtual" in interface.type.value.lower()
+        ):
+            continue
+        if (
+            interface.type
+            and hasattr(interface.type, "label")
+            and "virtual" in interface.type.label.lower()
+        ):
+            continue
+
+        # Get MAC addresses for this interface
+        mac_addresses = netbox_api.ipam.mac_addresses.filter(interface_id=interface.id)
+
+        # If interface has exactly one MAC address and no primary MAC, assign it
+        if len(mac_addresses) == 1 and not interface.mac_address:
+            mac_addr = mac_addresses[0]
+            tasks.append(
+                {
+                    "device_interface": {
+                        "device": interface.device.name,
+                        "name": interface.name,
+                        "primary_mac_address": mac_addr.address,
+                    }
+                }
+            )
+            logger.debug(
+                f"Found MAC assignment: {interface.device.name}:{interface.name} -> {mac_addr.address}"
+            )
+
+    # 2. OOB IP assignment from eth0 interfaces
+    logger.info("Checking eth0 interfaces for OOB IP assignments...")
+    eth0_interfaces = netbox_api.dcim.interfaces.filter(name="eth0")
+
+    for interface in eth0_interfaces:
+        # Get IP addresses assigned to this interface
+        ip_addresses = netbox_api.ipam.ip_addresses.filter(
+            assigned_object_id=interface.id
+        )
+
+        for ip_addr in ip_addresses:
+            device = netbox_api.dcim.devices.get(interface.device.id)
+            # If device doesn't have OOB IP set, assign this IP
+            if not device.oob_ip:
+                tasks.append(
+                    {"device": {"name": device.name, "oob_ip": ip_addr.address}}
+                )
+                logger.debug(
+                    f"Found OOB IP assignment: {device.name} -> {ip_addr.address}"
+                )
+
+    # 3. Primary IPv4 assignment from Loopback0 interfaces
+    logger.info("Checking Loopback0 interfaces for primary IPv4 assignments...")
+    loopback_interfaces = []
+    loopback_interfaces.extend(netbox_api.dcim.interfaces.filter(name="Loopback0"))
+
+    for interface in loopback_interfaces:
+        # Get IPv4 addresses assigned to this interface
+        ip_addresses = netbox_api.ipam.ip_addresses.filter(
+            assigned_object_id=interface.id
+        )
+
+        for ip_addr in ip_addresses:
+            # Check if this is an IPv4 address
+            if ":" not in ip_addr.address:  # Simple IPv4 check
+                device = netbox_api.dcim.devices.get(interface.device.id)
+                # If device doesn't have primary IPv4 set, assign this IP
+                if not device.primary_ip4:
+                    tasks.append(
+                        {
+                            "device": {
+                                "name": device.name,
+                                "primary_ip4": ip_addr.address,
+                            }
+                        }
+                    )
+                    logger.debug(
+                        f"Found primary IPv4 assignment: {device.name} -> {ip_addr.address}"
+                    )
+
+    # 4. Primary IPv6 assignment from Loopback0 interfaces
+    logger.info("Checking Loopback0 interfaces for primary IPv6 assignments...")
+    for interface in loopback_interfaces:
+        # Get IPv6 addresses assigned to this interface
+        ip_addresses = netbox_api.ipam.ip_addresses.filter(
+            assigned_object_id=interface.id
+        )
+
+        for ip_addr in ip_addresses:
+            # Check if this is an IPv6 address
+            if ":" in ip_addr.address:  # Simple IPv6 check
+                device = netbox_api.dcim.devices.get(interface.device.id)
+                # If device doesn't have primary IPv6 set, assign this IP
+                if not device.primary_ip6:
+                    tasks.append(
+                        {
+                            "device": {
+                                "name": device.name,
+                                "primary_ip6": ip_addr.address,
+                            }
+                        }
+                    )
+                    logger.debug(
+                        f"Found primary IPv6 assignment: {device.name} -> {ip_addr.address}"
+                    )
+
+    logger.info(f"Generated {len(tasks)} automatic configuration tasks")
+    return tasks
+
+
+@app.command(
+    name="autoconf", help="Generate automatic configuration based on NetBox data"
+)
+def autoconf_command(
+    output: Annotated[str, typer.Option(help="Output file path")] = "999-autoconf.yml",
+    debug: Annotated[bool, typer.Option(help="Debug")] = False,
+    dryrun: Annotated[
+        bool, typer.Option(help="Dry run - show tasks but don't write file")
+    ] = False,
+) -> None:
+    """Generate automatic configuration based on NetBox API data.
+
+    This command analyzes the NetBox database and generates configuration tasks
+    for common patterns:
+
+    1. Assign primary MAC addresses to interfaces that have exactly one MAC
+    2. Assign OOB IP addresses from eth0 interfaces to devices
+    3. Assign primary IPv4 addresses from Loopback0 interfaces to devices
+    4. Assign primary IPv6 addresses from Loopback0 interfaces to devices
+
+    The tasks are written to a YAML file (default: 999-autoconf.yml) in the
+    standard netbox-manager resource format.
+    """
+    # Initialize logger
+    init_logger(debug)
+
+    # Validate NetBox connection settings
+    validate_netbox_connection()
+
+    try:
+        # Generate tasks
+        tasks = _generate_autoconf_tasks()
+
+        if not tasks:
+            logger.info("No automatic configuration tasks found")
+            return
+
+        if dryrun:
+            logger.info("Dry run - would generate the following tasks:")
+            for task in tasks:
+                logger.info(f"  {yaml.dump(task, default_flow_style=False).strip()}")
+            return
+
+        # Ensure output directory exists
+        output_dir = (
+            os.path.dirname(output) if os.path.dirname(output) else settings.RESOURCES
+        )
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+
+        # If output is just a filename, put it in the RESOURCES directory
+        if not os.path.dirname(output) and settings.RESOURCES:
+            output = os.path.join(settings.RESOURCES, output)
+
+        # Write tasks to YAML file
+        with open(output, "w") as f:
+            yaml.dump(tasks, f, default_flow_style=False, sort_keys=False)
+
+        logger.info(f"Generated {len(tasks)} tasks in {output}")
+
+    except pynetbox.RequestError as e:
+        logger.error(f"NetBox API error: {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        logger.error(f"Error generating autoconf: {e}")
+        raise typer.Exit(1)
 
 
 @app.command(name="version", help="Show version information")
