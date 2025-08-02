@@ -866,17 +866,48 @@ def _generate_loopback_interfaces() -> list[dict]:
             elif hasattr(device.role, "name"):
                 device_role_slug = device.role.name.lower()
 
-            if (
-                device_role_slug in NETBOX_NODE_ROLES
-                or device_role_slug in NETBOX_SWITCH_ROLES
-            ):
+            # Node roles always get Loopback0 interfaces
+            if device_role_slug in NETBOX_NODE_ROLES:
                 should_have_loopback = True
+            # Switch roles only get Loopback0 if they have sonic_parameters.hwsku custom field
+            elif device_role_slug in NETBOX_SWITCH_ROLES:
+                # Check for sonic_parameters custom field with hwsku
+                if hasattr(device, "custom_fields") and device.custom_fields:
+                    sonic_params = device.custom_fields.get("sonic_parameters")
+                    if (
+                        sonic_params
+                        and isinstance(sonic_params, dict)
+                        and sonic_params.get("hwsku")
+                    ):
+                        should_have_loopback = True
+                        logger.debug(
+                            f"Switch {device.name} has sonic_parameters.hwsku: {sonic_params.get('hwsku')}"
+                        )
+                    else:
+                        logger.debug(
+                            f"Switch {device.name} does not have sonic_parameters.hwsku, skipping Loopback0"
+                        )
 
         # Check if device type name contains "switch" (case insensitive)
         if device.device_type and hasattr(device.device_type, "model"):
             device_type_name = device.device_type.model.lower()
             if "switch" in device_type_name:
-                should_have_loopback = True
+                # Also check for sonic_parameters.hwsku for device types containing "switch"
+                if hasattr(device, "custom_fields") and device.custom_fields:
+                    sonic_params = device.custom_fields.get("sonic_parameters")
+                    if (
+                        sonic_params
+                        and isinstance(sonic_params, dict)
+                        and sonic_params.get("hwsku")
+                    ):
+                        should_have_loopback = True
+                        logger.debug(
+                            f"Switch device {device.name} (type: {device_type_name}) has sonic_parameters.hwsku: {sonic_params.get('hwsku')}"
+                        )
+                    else:
+                        logger.debug(
+                            f"Switch device {device.name} (type: {device_type_name}) does not have sonic_parameters.hwsku, skipping Loopback0"
+                        )
 
         if not should_have_loopback:
             continue
