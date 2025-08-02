@@ -901,9 +901,14 @@ def _generate_autoconf_tasks() -> list[dict]:
                     f"Found MAC assignment: {device.name}:{interface.name} -> {mac_to_assign}"
                 )
 
-    # 2. OOB IP assignment from eth0 interfaces
-    logger.info("Checking eth0 interfaces for OOB IP assignments...")
+    # 2. Consolidated device IP assignments (OOB, primary IPv4, primary IPv6)
+    logger.info("Checking for device IP assignments...")
 
+    # Dictionary to collect all device assignments by device name
+    device_assignments = {}
+
+    # Collect OOB IP assignments from eth0 interfaces
+    logger.info("Checking eth0 interfaces for OOB IP assignments...")
     for device_id, device in non_switch_devices.items():
         # Get eth0 interface for this specific device
         eth0_interfaces = netbox_api.dcim.interfaces.filter(
@@ -917,16 +922,16 @@ def _generate_autoconf_tasks() -> list[dict]:
             )
 
             for ip_addr in ip_addresses:
-                tasks.append(
-                    {"device": {"name": device.name, "oob_ip": ip_addr.address}}
-                )
+                if device.name not in device_assignments:
+                    device_assignments[device.name] = {"name": device.name}
+
+                device_assignments[device.name]["oob_ip"] = ip_addr.address
                 logger.info(
                     f"Found OOB IP assignment: {device.name} -> {ip_addr.address}"
                 )
 
-    # 3. Primary IPv4 assignment from Loopback0 interfaces
-    logger.info("Checking Loopback0 interfaces for primary IPv4 assignments...")
-
+    # Collect primary IPv4 and IPv6 assignments from Loopback0 interfaces
+    logger.info("Checking Loopback0 interfaces for primary IP assignments...")
     for device_id, device in non_switch_devices.items():
         # Get Loopback0 interface for this specific device
         loopback_interfaces = netbox_api.dcim.interfaces.filter(
@@ -934,55 +939,30 @@ def _generate_autoconf_tasks() -> list[dict]:
         )
 
         for interface in loopback_interfaces:
-            # Get IPv4 addresses assigned to this interface
+            # Get IP addresses assigned to this interface
             ip_addresses = netbox_api.ipam.ip_addresses.filter(
                 assigned_object_id=interface.id
             )
 
             for ip_addr in ip_addresses:
-                # Check if this is an IPv4 address
+                if device.name not in device_assignments:
+                    device_assignments[device.name] = {"name": device.name}
+
+                # Check if this is an IPv4 or IPv6 address
                 if ":" not in ip_addr.address:  # Simple IPv4 check
-                    tasks.append(
-                        {
-                            "device": {
-                                "name": device.name,
-                                "primary_ip4": ip_addr.address,
-                            }
-                        }
-                    )
+                    device_assignments[device.name]["primary_ip4"] = ip_addr.address
                     logger.info(
                         f"Found primary IPv4 assignment: {device.name} -> {ip_addr.address}"
                     )
-
-    # 4. Primary IPv6 assignment from Loopback0 interfaces
-    logger.info("Checking Loopback0 interfaces for primary IPv6 assignments...")
-
-    for device_id, device in non_switch_devices.items():
-        # Get Loopback0 interface for this specific device
-        loopback_interfaces = netbox_api.dcim.interfaces.filter(
-            device_id=device_id, name="Loopback0"
-        )
-
-        for interface in loopback_interfaces:
-            # Get IPv6 addresses assigned to this interface
-            ip_addresses = netbox_api.ipam.ip_addresses.filter(
-                assigned_object_id=interface.id
-            )
-
-            for ip_addr in ip_addresses:
-                # Check if this is an IPv6 address
-                if ":" in ip_addr.address:  # Simple IPv6 check
-                    tasks.append(
-                        {
-                            "device": {
-                                "name": device.name,
-                                "primary_ip6": ip_addr.address,
-                            }
-                        }
-                    )
+                else:  # IPv6 address
+                    device_assignments[device.name]["primary_ip6"] = ip_addr.address
                     logger.info(
                         f"Found primary IPv6 assignment: {device.name} -> {ip_addr.address}"
                     )
+
+    # Create consolidated device tasks from collected assignments
+    for device_assignment in device_assignments.values():
+        tasks.append({"device": device_assignment})
 
     logger.info(f"Generated {len(tasks)} automatic configuration tasks")
     return tasks
