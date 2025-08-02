@@ -810,6 +810,85 @@ def import_archive(
             raise typer.Exit(1)
 
 
+def _generate_loopback_interfaces() -> list[dict]:
+    """Generate Loopback0 interfaces for eligible devices that don't have them."""
+    tasks = []
+
+    # Initialize NetBox API connection
+    netbox_api = pynetbox.api(settings.URL, token=settings.TOKEN)
+    if settings.IGNORE_SSL_ERRORS:
+        netbox_api.http_session.verify = False
+
+    logger.info("Analyzing devices for Loopback0 interface creation...")
+
+    # Define device roles that should get Loopback0 interfaces
+    LOOPBACK_DEVICE_ROLES = [
+        "compute",
+        "storage",
+        "resource",
+        "control",
+        "manager",
+        "network",
+        "metalbox",
+        "dpu",
+        "loadbalancer",
+        "router",
+        "firewall",
+    ]
+
+    # Get all devices
+    all_devices = netbox_api.dcim.devices.all()
+
+    for device in all_devices:
+        # Determine if this device should have a Loopback0 interface
+        should_have_loopback = False
+
+        # Check if device has role and if it's in the list of roles that need Loopback0
+        if device.role:
+            device_role_slug = ""
+            if hasattr(device.role, "slug"):
+                device_role_slug = device.role.slug.lower()
+            elif hasattr(device.role, "name"):
+                device_role_slug = device.role.name.lower()
+
+            if device_role_slug in LOOPBACK_DEVICE_ROLES:
+                should_have_loopback = True
+
+        # Check if device type name contains "switch" (case insensitive)
+        if device.device_type and hasattr(device.device_type, "model"):
+            device_type_name = device.device_type.model.lower()
+            if "switch" in device_type_name:
+                should_have_loopback = True
+
+        if not should_have_loopback:
+            continue
+
+        # Check if the device already has a Loopback0 interface
+        existing_loopback = netbox_api.dcim.interfaces.filter(
+            device_id=device.id, name="Loopback0"
+        )
+
+        if not existing_loopback:
+            # Create Loopback0 interface task
+            tasks.append(
+                {
+                    "device_interface": {
+                        "device": device.name,
+                        "name": "Loopback0",
+                        "type": "virtual",
+                        "enabled": True,
+                        "tags": ["managed-by-osism"],
+                    }
+                }
+            )
+            logger.info(f"Will create Loopback0 interface for device: {device.name}")
+        else:
+            logger.debug(f"Device {device.name} already has Loopback0 interface")
+
+    logger.info(f"Generated {len(tasks)} Loopback0 interface creation tasks")
+    return tasks
+
+
 def _generate_autoconf_tasks() -> list[dict]:
     """Generate automatic configuration tasks based on NetBox API data."""
     tasks = []
@@ -973,6 +1052,9 @@ def _generate_autoconf_tasks() -> list[dict]:
 )
 def autoconf_command(
     output: Annotated[str, typer.Option(help="Output file path")] = "999-autoconf.yml",
+    loopback_output: Annotated[
+        str, typer.Option(help="Loopback interfaces output file path")
+    ] = "299-autoconf.yml",
     debug: Annotated[bool, typer.Option(help="Debug")] = False,
     dryrun: Annotated[
         bool, typer.Option(help="Dry run - show tasks but don't write file")
@@ -983,13 +1065,14 @@ def autoconf_command(
     This command analyzes the NetBox database and generates configuration tasks
     for common patterns:
 
-    1. Assign primary MAC addresses to interfaces that have exactly one MAC
-    2. Assign OOB IP addresses from eth0 interfaces to devices
-    3. Assign primary IPv4 addresses from Loopback0 interfaces to devices
-    4. Assign primary IPv6 addresses from Loopback0 interfaces to devices
+    1. Create Loopback0 interfaces for switches and devices with specific roles
+    2. Assign primary MAC addresses to interfaces that have exactly one MAC
+    3. Assign OOB IP addresses from eth0 interfaces to devices
+    4. Assign primary IPv4 addresses from Loopback0 interfaces to devices
+    5. Assign primary IPv6 addresses from Loopback0 interfaces to devices
 
-    The tasks are written to a YAML file (default: 999-autoconf.yml) in the
-    standard netbox-manager resource format.
+    The loopback interface tasks are written to 299-autoconf.yml and other tasks
+    are written to 999-autoconf.yml in the standard netbox-manager resource format.
     """
     # Initialize logger
     init_logger(debug)
@@ -998,35 +1081,84 @@ def autoconf_command(
     validate_netbox_connection()
 
     try:
-        # Generate tasks
-        tasks = _generate_autoconf_tasks()
+        # Generate loopback interface tasks
+        loopback_tasks = _generate_loopback_interfaces()
 
-        if not tasks:
-            logger.info("No automatic configuration tasks found")
-            return
+        # Generate other autoconf tasks
+        other_tasks = _generate_autoconf_tasks()
 
         if dryrun:
-            logger.info("Dry run - would generate the following tasks:")
-            for task in tasks:
-                logger.info(f"  {yaml.dump(task, default_flow_style=False).strip()}")
+            if loopback_tasks:
+                logger.info(
+                    "Dry run - would generate the following loopback interface tasks:"
+                )
+                for task in loopback_tasks:
+                    logger.info(
+                        f"  {yaml.dump(task, default_flow_style=False).strip()}"
+                    )
+
+            if other_tasks:
+                logger.info(
+                    "Dry run - would generate the following other autoconf tasks:"
+                )
+                for task in other_tasks:
+                    logger.info(
+                        f"  {yaml.dump(task, default_flow_style=False).strip()}"
+                    )
             return
 
-        # Ensure output directory exists
-        output_dir = (
-            os.path.dirname(output) if os.path.dirname(output) else settings.RESOURCES
-        )
-        if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir, exist_ok=True)
+        files_written = 0
 
-        # If output is just a filename, put it in the RESOURCES directory
-        if not os.path.dirname(output) and settings.RESOURCES:
-            output = os.path.join(settings.RESOURCES, output)
+        # Handle loopback interfaces file
+        if loopback_tasks:
+            # Ensure output directory exists for loopback file
+            loopback_output_dir = (
+                os.path.dirname(loopback_output)
+                if os.path.dirname(loopback_output)
+                else settings.RESOURCES
+            )
+            if loopback_output_dir and not os.path.exists(loopback_output_dir):
+                os.makedirs(loopback_output_dir, exist_ok=True)
 
-        # Write tasks to YAML file
-        with open(output, "w") as f:
-            yaml.dump(tasks, f, default_flow_style=False, sort_keys=False)
+            # If loopback_output is just a filename, put it in the RESOURCES directory
+            if not os.path.dirname(loopback_output) and settings.RESOURCES:
+                loopback_output = os.path.join(settings.RESOURCES, loopback_output)
 
-        logger.info(f"Generated {len(tasks)} tasks in {output}")
+            # Write loopback tasks to YAML file
+            with open(loopback_output, "w") as f:
+                yaml.dump(loopback_tasks, f, default_flow_style=False, sort_keys=False)
+
+            logger.info(
+                f"Generated {len(loopback_tasks)} loopback interface tasks in {loopback_output}"
+            )
+            files_written += 1
+
+        # Handle other autoconf tasks file
+        if other_tasks:
+            # Ensure output directory exists
+            output_dir = (
+                os.path.dirname(output)
+                if os.path.dirname(output)
+                else settings.RESOURCES
+            )
+            if output_dir and not os.path.exists(output_dir):
+                os.makedirs(output_dir, exist_ok=True)
+
+            # If output is just a filename, put it in the RESOURCES directory
+            if not os.path.dirname(output) and settings.RESOURCES:
+                output = os.path.join(settings.RESOURCES, output)
+
+            # Write other tasks to YAML file
+            with open(output, "w") as f:
+                yaml.dump(other_tasks, f, default_flow_style=False, sort_keys=False)
+
+            logger.info(
+                f"Generated {len(other_tasks)} other autoconf tasks in {output}"
+            )
+            files_written += 1
+
+        if files_written == 0:
+            logger.info("No automatic configuration tasks found")
 
     except pynetbox.RequestError as e:
         logger.error(f"NetBox API error: {e}")
