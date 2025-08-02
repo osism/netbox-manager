@@ -897,7 +897,7 @@ def _generate_autoconf_tasks() -> list[dict]:
                         }
                     }
                 )
-                logger.debug(
+                logger.info(
                     f"Found MAC assignment: {device.name}:{interface.name} -> {mac_to_assign}"
                 )
 
@@ -920,7 +920,7 @@ def _generate_autoconf_tasks() -> list[dict]:
                 tasks.append(
                     {"device": {"name": device.name, "oob_ip": ip_addr.address}}
                 )
-                logger.debug(
+                logger.info(
                     f"Found OOB IP assignment: {device.name} -> {ip_addr.address}"
                 )
 
@@ -950,7 +950,7 @@ def _generate_autoconf_tasks() -> list[dict]:
                             }
                         }
                     )
-                    logger.debug(
+                    logger.info(
                         f"Found primary IPv4 assignment: {device.name} -> {ip_addr.address}"
                     )
 
@@ -980,7 +980,7 @@ def _generate_autoconf_tasks() -> list[dict]:
                             }
                         }
                     )
-                    logger.debug(
+                    logger.info(
                         f"Found primary IPv6 assignment: {device.name} -> {ip_addr.address}"
                     )
 
