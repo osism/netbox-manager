@@ -917,14 +917,12 @@ def _generate_autoconf_tasks() -> list[dict]:
             )
 
             for ip_addr in ip_addresses:
-                # If device doesn't have OOB IP set, assign this IP
-                if not device.oob_ip:
-                    tasks.append(
-                        {"device": {"name": device.name, "oob_ip": ip_addr.address}}
-                    )
-                    logger.debug(
-                        f"Found OOB IP assignment: {device.name} -> {ip_addr.address}"
-                    )
+                tasks.append(
+                    {"device": {"name": device.name, "oob_ip": ip_addr.address}}
+                )
+                logger.debug(
+                    f"Found OOB IP assignment: {device.name} -> {ip_addr.address}"
+                )
 
     # 3. Primary IPv4 assignment from Loopback0 interfaces
     logger.info("Checking Loopback0 interfaces for primary IPv4 assignments...")
@@ -944,19 +942,17 @@ def _generate_autoconf_tasks() -> list[dict]:
             for ip_addr in ip_addresses:
                 # Check if this is an IPv4 address
                 if ":" not in ip_addr.address:  # Simple IPv4 check
-                    # If device doesn't have primary IPv4 set, assign this IP
-                    if not device.primary_ip4:
-                        tasks.append(
-                            {
-                                "device": {
-                                    "name": device.name,
-                                    "primary_ip4": ip_addr.address,
-                                }
+                    tasks.append(
+                        {
+                            "device": {
+                                "name": device.name,
+                                "primary_ip4": ip_addr.address,
                             }
-                        )
-                        logger.debug(
-                            f"Found primary IPv4 assignment: {device.name} -> {ip_addr.address}"
-                        )
+                        }
+                    )
+                    logger.debug(
+                        f"Found primary IPv4 assignment: {device.name} -> {ip_addr.address}"
+                    )
 
     # 4. Primary IPv6 assignment from Loopback0 interfaces
     logger.info("Checking Loopback0 interfaces for primary IPv6 assignments...")
@@ -976,19 +972,17 @@ def _generate_autoconf_tasks() -> list[dict]:
             for ip_addr in ip_addresses:
                 # Check if this is an IPv6 address
                 if ":" in ip_addr.address:  # Simple IPv6 check
-                    # If device doesn't have primary IPv6 set, assign this IP
-                    if not device.primary_ip6:
-                        tasks.append(
-                            {
-                                "device": {
-                                    "name": device.name,
-                                    "primary_ip6": ip_addr.address,
-                                }
+                    tasks.append(
+                        {
+                            "device": {
+                                "name": device.name,
+                                "primary_ip6": ip_addr.address,
                             }
-                        )
-                        logger.debug(
-                            f"Found primary IPv6 assignment: {device.name} -> {ip_addr.address}"
-                        )
+                        }
+                    )
+                    logger.debug(
+                        f"Found primary IPv6 assignment: {device.name} -> {ip_addr.address}"
+                    )
 
     logger.info(f"Generated {len(tasks)} automatic configuration tasks")
     return tasks
