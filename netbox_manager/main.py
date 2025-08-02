@@ -826,59 +826,89 @@ def _generate_autoconf_tasks() -> list[dict]:
     interfaces = netbox_api.dcim.interfaces.all()
 
     for interface in interfaces:
-        # Skip virtual interfaces
-        if (
-            interface.type
-            and hasattr(interface.type, "value")
-            and "virtual" in interface.type.value.lower()
-        ):
-            continue
-        if (
-            interface.type
-            and hasattr(interface.type, "label")
-            and "virtual" in interface.type.label.lower()
-        ):
-            continue
+        try:
+            # Skip virtual interfaces
+            if (
+                interface.type
+                and hasattr(interface.type, "value")
+                and "virtual" in interface.type.value.lower()
+            ):
+                continue
+            if (
+                interface.type
+                and hasattr(interface.type, "label")
+                and "virtual" in interface.type.label.lower()
+            ):
+                continue
 
-        # Get MAC addresses for this interface
-        mac_addresses = netbox_api.ipam.mac_addresses.filter(interface_id=interface.id)
+            # Get MAC addresses for this interface
+            mac_addresses = netbox_api.ipam.mac_addresses.filter(
+                interface_id=interface.id
+            )
 
-        # If interface has exactly one MAC address and no primary MAC, assign it
-        if len(mac_addresses) == 1 and not interface.mac_address:
-            mac_addr = mac_addresses[0]
-            tasks.append(
-                {
-                    "device_interface": {
-                        "device": interface.device.name,
-                        "name": interface.name,
-                        "primary_mac_address": mac_addr.address,
+            # If interface has exactly one MAC address and no primary MAC, assign it
+            if len(mac_addresses) == 1 and not interface.mac_address:
+                mac_addr = mac_addresses[0]
+                tasks.append(
+                    {
+                        "device_interface": {
+                            "device": interface.device.name,
+                            "name": interface.name,
+                            "primary_mac_address": mac_addr.address,
+                        }
                     }
-                }
+                )
+                logger.debug(
+                    f"Found MAC assignment: {interface.device.name}:{interface.name} -> {mac_addr.address}"
+                )
+        except pynetbox.RequestError as e:
+            if "could not be found" in str(e):
+                logger.warning(
+                    f"Interface {interface.id} ({interface.device.name}:{interface.name}) not accessible, skipping MAC address check"
+                )
+                continue
+            else:
+                raise
+        except Exception as e:
+            logger.warning(
+                f"Error processing interface {interface.id} ({interface.device.name}:{interface.name}): {e}"
             )
-            logger.debug(
-                f"Found MAC assignment: {interface.device.name}:{interface.name} -> {mac_addr.address}"
-            )
+            continue
 
     # 2. OOB IP assignment from eth0 interfaces
     logger.info("Checking eth0 interfaces for OOB IP assignments...")
     eth0_interfaces = netbox_api.dcim.interfaces.filter(name="eth0")
 
     for interface in eth0_interfaces:
-        # Get IP addresses assigned to this interface
-        ip_addresses = netbox_api.ipam.ip_addresses.filter(
-            assigned_object_id=interface.id
-        )
+        try:
+            # Get IP addresses assigned to this interface
+            ip_addresses = netbox_api.ipam.ip_addresses.filter(
+                assigned_object_id=interface.id
+            )
 
-        for ip_addr in ip_addresses:
-            device = netbox_api.dcim.devices.get(interface.device.id)
-            # If device doesn't have OOB IP set, assign this IP
-            if not device.oob_ip:
-                tasks.append(
-                    {"device": {"name": device.name, "oob_ip": ip_addr.address}}
+            for ip_addr in ip_addresses:
+                device = netbox_api.dcim.devices.get(interface.device.id)
+                # If device doesn't have OOB IP set, assign this IP
+                if not device.oob_ip:
+                    tasks.append(
+                        {"device": {"name": device.name, "oob_ip": ip_addr.address}}
+                    )
+                    logger.debug(
+                        f"Found OOB IP assignment: {device.name} -> {ip_addr.address}"
+                    )
+        except pynetbox.RequestError as e:
+            if "could not be found" in str(e):
+                logger.warning(
+                    f"Interface {interface.id} ({interface.device.name}:{interface.name}) not accessible, skipping OOB IP check"
                 )
-                logger.debug(
-                    f"Found OOB IP assignment: {device.name} -> {ip_addr.address}"
-                )
+                continue
+            else:
+                raise
+        except Exception as e:
+            logger.warning(
+                f"Error processing eth0 interface {interface.id} ({interface.device.name}:{interface.name}): {e}"
+            )
+            continue
 
     # 3. Primary IPv4 assignment from Loopback0 interfaces
     logger.info("Checking Loopback0 interfaces for primary IPv4 assignments...")
@@ -886,54 +916,82 @@ def _generate_autoconf_tasks() -> list[dict]:
     loopback_interfaces.extend(netbox_api.dcim.interfaces.filter(name="Loopback0"))
 
     for interface in loopback_interfaces:
-        # Get IPv4 addresses assigned to this interface
-        ip_addresses = netbox_api.ipam.ip_addresses.filter(
-            assigned_object_id=interface.id
-        )
+        try:
+            # Get IPv4 addresses assigned to this interface
+            ip_addresses = netbox_api.ipam.ip_addresses.filter(
+                assigned_object_id=interface.id
+            )
 
-        for ip_addr in ip_addresses:
-            # Check if this is an IPv4 address
-            if ":" not in ip_addr.address:  # Simple IPv4 check
-                device = netbox_api.dcim.devices.get(interface.device.id)
-                # If device doesn't have primary IPv4 set, assign this IP
-                if not device.primary_ip4:
-                    tasks.append(
-                        {
-                            "device": {
-                                "name": device.name,
-                                "primary_ip4": ip_addr.address,
+            for ip_addr in ip_addresses:
+                # Check if this is an IPv4 address
+                if ":" not in ip_addr.address:  # Simple IPv4 check
+                    device = netbox_api.dcim.devices.get(interface.device.id)
+                    # If device doesn't have primary IPv4 set, assign this IP
+                    if not device.primary_ip4:
+                        tasks.append(
+                            {
+                                "device": {
+                                    "name": device.name,
+                                    "primary_ip4": ip_addr.address,
+                                }
                             }
-                        }
-                    )
-                    logger.debug(
-                        f"Found primary IPv4 assignment: {device.name} -> {ip_addr.address}"
-                    )
+                        )
+                        logger.debug(
+                            f"Found primary IPv4 assignment: {device.name} -> {ip_addr.address}"
+                        )
+        except pynetbox.RequestError as e:
+            if "could not be found" in str(e):
+                logger.warning(
+                    f"Loopback interface {interface.id} ({interface.device.name}:{interface.name}) not accessible, skipping IPv4 check"
+                )
+                continue
+            else:
+                raise
+        except Exception as e:
+            logger.warning(
+                f"Error processing Loopback interface {interface.id} ({interface.device.name}:{interface.name}): {e}"
+            )
+            continue
 
     # 4. Primary IPv6 assignment from Loopback0 interfaces
     logger.info("Checking Loopback0 interfaces for primary IPv6 assignments...")
     for interface in loopback_interfaces:
-        # Get IPv6 addresses assigned to this interface
-        ip_addresses = netbox_api.ipam.ip_addresses.filter(
-            assigned_object_id=interface.id
-        )
+        try:
+            # Get IPv6 addresses assigned to this interface
+            ip_addresses = netbox_api.ipam.ip_addresses.filter(
+                assigned_object_id=interface.id
+            )
 
-        for ip_addr in ip_addresses:
-            # Check if this is an IPv6 address
-            if ":" in ip_addr.address:  # Simple IPv6 check
-                device = netbox_api.dcim.devices.get(interface.device.id)
-                # If device doesn't have primary IPv6 set, assign this IP
-                if not device.primary_ip6:
-                    tasks.append(
-                        {
-                            "device": {
-                                "name": device.name,
-                                "primary_ip6": ip_addr.address,
+            for ip_addr in ip_addresses:
+                # Check if this is an IPv6 address
+                if ":" in ip_addr.address:  # Simple IPv6 check
+                    device = netbox_api.dcim.devices.get(interface.device.id)
+                    # If device doesn't have primary IPv6 set, assign this IP
+                    if not device.primary_ip6:
+                        tasks.append(
+                            {
+                                "device": {
+                                    "name": device.name,
+                                    "primary_ip6": ip_addr.address,
+                                }
                             }
-                        }
-                    )
-                    logger.debug(
-                        f"Found primary IPv6 assignment: {device.name} -> {ip_addr.address}"
-                    )
+                        )
+                        logger.debug(
+                            f"Found primary IPv6 assignment: {device.name} -> {ip_addr.address}"
+                        )
+        except pynetbox.RequestError as e:
+            if "could not be found" in str(e):
+                logger.warning(
+                    f"Loopback interface {interface.id} ({interface.device.name}:{interface.name}) not accessible, skipping IPv6 check"
+                )
+                continue
+            else:
+                raise
+        except Exception as e:
+            logger.warning(
+                f"Error processing Loopback interface {interface.id} ({interface.device.name}:{interface.name}): {e}"
+            )
+            continue
 
     logger.info(f"Generated {len(tasks)} automatic configuration tasks")
     return tasks
