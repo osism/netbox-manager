@@ -71,6 +71,36 @@ settings.validators.register(
     ),
 )
 
+# Define device roles that should get Loopback0 interfaces
+NETBOX_NODE_ROLES = [
+    "compute",
+    "storage",
+    "resource",
+    "control",
+    "manager",
+    "network",
+    "metalbox",
+    "dpu",
+    "loadbalancer",
+    "router",
+    "firewall",
+]
+
+# Define switch roles that should also get Loopback0 interfaces
+NETBOX_SWITCH_ROLES = [
+    "accessleaf",
+    "borderleaf",
+    "computeleaf",
+    "dataleaf",
+    "leaf",
+    "serviceleaf",
+    "spine",
+    "storageleaf",
+    "superspine",
+    "switch",
+    "transferleaf",
+]
+
 
 def validate_netbox_connection():
     """Validate NetBox connection settings."""
@@ -821,21 +851,6 @@ def _generate_loopback_interfaces() -> list[dict]:
 
     logger.info("Analyzing devices for Loopback0 interface creation...")
 
-    # Define device roles that should get Loopback0 interfaces
-    LOOPBACK_DEVICE_ROLES = [
-        "compute",
-        "storage",
-        "resource",
-        "control",
-        "manager",
-        "network",
-        "metalbox",
-        "dpu",
-        "loadbalancer",
-        "router",
-        "firewall",
-    ]
-
     # Get all devices
     all_devices = netbox_api.dcim.devices.all()
 
@@ -851,7 +866,10 @@ def _generate_loopback_interfaces() -> list[dict]:
             elif hasattr(device.role, "name"):
                 device_role_slug = device.role.name.lower()
 
-            if device_role_slug in LOOPBACK_DEVICE_ROLES:
+            if (
+                device_role_slug in NETBOX_NODE_ROLES
+                or device_role_slug in NETBOX_SWITCH_ROLES
+            ):
                 should_have_loopback = True
 
         # Check if device type name contains "switch" (case insensitive)
@@ -899,21 +917,6 @@ def _generate_autoconf_tasks() -> list[dict]:
         netbox_api.http_session.verify = False
 
     logger.info("Analyzing NetBox data for automatic configuration...")
-
-    # Define switch roles to exclude from interface analysis
-    NETBOX_SWITCH_ROLES = [
-        "accessleaf",
-        "borderleaf",
-        "computeleaf",
-        "dataleaf",
-        "leaf",
-        "serviceleaf",
-        "spine",
-        "storageleaf",
-        "superspine",
-        "switch",
-        "transferleaf",
-    ]
 
     # Get all devices first and filter out switches
     logger.info("Filtering out switch devices...")
