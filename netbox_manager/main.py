@@ -3,6 +3,7 @@
 import concurrent.futures
 import glob
 from importlib import metadata
+import ipaddress
 from itertools import groupby
 import os
 import platform
@@ -938,6 +939,178 @@ def _generate_loopback_interfaces() -> list[dict]:
     return tasks
 
 
+def _generate_cluster_loopback_tasks() -> list[dict]:
+    """Generate loopback IP address assignments for devices with assigned clusters."""
+    tasks = []
+
+    # Initialize NetBox API connection
+    netbox_api = pynetbox.api(settings.URL, token=settings.TOKEN)
+    if settings.IGNORE_SSL_ERRORS:
+        netbox_api.http_session.verify = False
+
+    logger.info("Analyzing devices with clusters for loopback IP generation...")
+
+    # Get all devices with clusters assigned
+    devices_with_clusters = []
+    all_devices = netbox_api.dcim.devices.all()
+
+    for device in all_devices:
+        if device.cluster:
+            devices_with_clusters.append(device)
+            logger.debug(
+                f"Found device {device.name} with cluster {device.cluster.name}"
+            )
+
+    logger.info(f"Found {len(devices_with_clusters)} devices with assigned clusters")
+
+    # Group devices by cluster
+    clusters_dict = {}
+    for device in devices_with_clusters:
+        cluster_id = device.cluster.id
+        if cluster_id not in clusters_dict:
+            clusters_dict[cluster_id] = {"cluster": device.cluster, "devices": []}
+        clusters_dict[cluster_id]["devices"].append(device)
+
+    # Process each cluster
+    for cluster_id, cluster_data in clusters_dict.items():
+        cluster = cluster_data["cluster"]
+        devices = cluster_data["devices"]
+
+        logger.info(f"Processing cluster '{cluster.name}' with {len(devices)} devices")
+
+        # Get the full cluster object to access config_context
+        try:
+            full_cluster = netbox_api.virtualization.clusters.get(cluster_id)
+            if not full_cluster:
+                logger.warning(
+                    f"Could not retrieve full cluster object for cluster {cluster.name}"
+                )
+                continue
+
+            config_context = getattr(full_cluster, "config_context", {}) or {}
+
+            # Extract loopback network configuration
+            loopback_ipv4_network = config_context.get("_loopback_network_ipv4")
+            loopback_ipv6_network = config_context.get("_loopback_network_ipv6")
+            loopback_offset_ipv4 = config_context.get("_loopback_offset_ipv4", 0)
+
+            if not loopback_ipv4_network:
+                logger.info(
+                    f"Cluster '{cluster.name}' has no _loopback_network_ipv4 in config context, skipping"
+                )
+                continue
+
+            logger.debug(
+                f"Cluster '{cluster.name}' config: IPv4={loopback_ipv4_network}, IPv6={loopback_ipv6_network}, offset={loopback_offset_ipv4}"
+            )
+
+            # Parse IPv4 network
+            try:
+                ipv4_network = ipaddress.IPv4Network(
+                    loopback_ipv4_network, strict=False
+                )
+            except ValueError as e:
+                logger.error(
+                    f"Invalid IPv4 network '{loopback_ipv4_network}' for cluster '{cluster.name}': {e}"
+                )
+                continue
+
+            # Parse IPv6 network if provided
+            ipv6_network = None
+            if loopback_ipv6_network:
+                try:
+                    ipv6_network = ipaddress.IPv6Network(
+                        loopback_ipv6_network, strict=False
+                    )
+                except ValueError as e:
+                    logger.error(
+                        f"Invalid IPv6 network '{loopback_ipv6_network}' for cluster '{cluster.name}': {e}"
+                    )
+
+            # Generate IP addresses for each device
+            for device in devices:
+                # Get device position (rack position)
+                position = getattr(device, "position", None)
+                if position is None:
+                    logger.warning(
+                        f"Device '{device.name}' has no rack position, skipping loopback generation"
+                    )
+                    continue
+
+                # Calculate IPv4 address: byte_4 = device_position * 2 - 1 + offset
+                byte_4 = position * 2 - 1 + loopback_offset_ipv4
+
+                try:
+                    # Convert network to list of octets and modify the last octet
+                    network_int = int(ipv4_network.network_address)
+                    device_ipv4_int = network_int + byte_4
+                    device_ipv4 = ipaddress.IPv4Address(device_ipv4_int)
+                    device_ipv4_with_mask = f"{device_ipv4}/32"
+
+                    # Generate IPv4 task
+                    tasks.append(
+                        {
+                            "ip_address": {
+                                "address": device_ipv4_with_mask,
+                                "assigned_object": {
+                                    "name": "Loopback0",
+                                    "device": device.name,
+                                },
+                            }
+                        }
+                    )
+                    logger.info(
+                        f"Generated IPv4 loopback: {device.name} -> {device_ipv4_with_mask}"
+                    )
+
+                    # Generate IPv6 address based on IPv4
+                    if ipv6_network:
+                        try:
+                            # Convert IPv4 to IPv6: fd93:363d:dab8:0:10:10:128:3/128
+                            ipv4_octets = str(device_ipv4).split(".")
+                            ipv6_suffix = f"{ipv4_octets[0]}:{ipv4_octets[1]}:{ipv4_octets[2]}:{ipv4_octets[3]}"
+
+                            # Create IPv6 address using the network prefix and IPv4-based suffix
+                            network_prefix = str(ipv6_network.network_address).rstrip(
+                                "::"
+                            )
+                            if network_prefix.endswith(":"):
+                                network_prefix = network_prefix.rstrip(":")
+                            device_ipv6 = f"{network_prefix}:0:{ipv6_suffix}/128"
+
+                            tasks.append(
+                                {
+                                    "ip_address": {
+                                        "address": device_ipv6,
+                                        "assigned_object": {
+                                            "name": "Loopback0",
+                                            "device": device.name,
+                                        },
+                                    }
+                                }
+                            )
+                            logger.info(
+                                f"Generated IPv6 loopback: {device.name} -> {device_ipv6}"
+                            )
+
+                        except Exception as e:
+                            logger.error(
+                                f"Error generating IPv6 address for device '{device.name}': {e}"
+                            )
+
+                except Exception as e:
+                    logger.error(
+                        f"Error generating IPv4 address for device '{device.name}': {e}"
+                    )
+
+        except Exception as e:
+            logger.error(f"Error processing cluster '{cluster.name}': {e}")
+            continue
+
+    logger.info(f"Generated {len(tasks)} cluster-based loopback IP assignment tasks")
+    return tasks
+
+
 def _generate_autoconf_tasks() -> list[dict]:
     """Generate automatic configuration tasks based on NetBox API data."""
     tasks = []
@@ -1089,6 +1262,9 @@ def autoconf_command(
     loopback_output: Annotated[
         str, typer.Option(help="Loopback interfaces output file path")
     ] = "299-autoconf.yml",
+    cluster_loopback_output: Annotated[
+        str, typer.Option(help="Cluster-based loopback IPs output file path")
+    ] = "399-autoconf.yml",
     debug: Annotated[bool, typer.Option(help="Debug")] = False,
     dryrun: Annotated[
         bool, typer.Option(help="Dry run - show tasks but don't write file")
@@ -1100,13 +1276,15 @@ def autoconf_command(
     for common patterns:
 
     1. Create Loopback0 interfaces for switches and devices with specific roles
-    2. Assign primary MAC addresses to interfaces that have exactly one MAC
-    3. Assign OOB IP addresses from eth0 interfaces to devices
-    4. Assign primary IPv4 addresses from Loopback0 interfaces to devices
-    5. Assign primary IPv6 addresses from Loopback0 interfaces to devices
+    2. Generate cluster-based loopback IP addresses for devices with assigned clusters
+    3. Assign primary MAC addresses to interfaces that have exactly one MAC
+    4. Assign OOB IP addresses from eth0 interfaces to devices
+    5. Assign primary IPv4 addresses from Loopback0 interfaces to devices
+    6. Assign primary IPv6 addresses from Loopback0 interfaces to devices
 
-    The loopback interface tasks are written to 299-autoconf.yml and other tasks
-    are written to 999-autoconf.yml in the standard netbox-manager resource format.
+    The loopback interface tasks are written to 299-autoconf.yml, cluster-based
+    loopback IP tasks are written to 399-autoconf.yml, and other tasks are written
+    to 999-autoconf.yml in the standard netbox-manager resource format.
     """
     # Initialize logger
     init_logger(debug)
@@ -1118,6 +1296,9 @@ def autoconf_command(
         # Generate loopback interface tasks
         loopback_tasks = _generate_loopback_interfaces()
 
+        # Generate cluster-based loopback IP tasks
+        cluster_loopback_tasks = _generate_cluster_loopback_tasks()
+
         # Generate other autoconf tasks
         other_tasks = _generate_autoconf_tasks()
 
@@ -1127,6 +1308,15 @@ def autoconf_command(
                     "Dry run - would generate the following loopback interface tasks:"
                 )
                 for task in loopback_tasks:
+                    logger.info(
+                        f"  {yaml.dump(task, default_flow_style=False).strip()}"
+                    )
+
+            if cluster_loopback_tasks:
+                logger.info(
+                    "Dry run - would generate the following cluster-based loopback IP tasks:"
+                )
+                for task in cluster_loopback_tasks:
                     logger.info(
                         f"  {yaml.dump(task, default_flow_style=False).strip()}"
                     )
@@ -1164,6 +1354,36 @@ def autoconf_command(
 
             logger.info(
                 f"Generated {len(loopback_tasks)} loopback interface tasks in {loopback_output}"
+            )
+            files_written += 1
+
+        # Handle cluster-based loopback IP tasks file
+        if cluster_loopback_tasks:
+            # Ensure output directory exists for cluster loopback file
+            cluster_loopback_output_dir = (
+                os.path.dirname(cluster_loopback_output)
+                if os.path.dirname(cluster_loopback_output)
+                else settings.RESOURCES
+            )
+            if cluster_loopback_output_dir and not os.path.exists(
+                cluster_loopback_output_dir
+            ):
+                os.makedirs(cluster_loopback_output_dir, exist_ok=True)
+
+            # If cluster_loopback_output is just a filename, put it in the RESOURCES directory
+            if not os.path.dirname(cluster_loopback_output) and settings.RESOURCES:
+                cluster_loopback_output = os.path.join(
+                    settings.RESOURCES, cluster_loopback_output
+                )
+
+            # Write cluster loopback tasks to YAML file
+            with open(cluster_loopback_output, "w") as f:
+                yaml.dump(
+                    cluster_loopback_tasks, f, default_flow_style=False, sort_keys=False
+                )
+
+            logger.info(
+                f"Generated {len(cluster_loopback_tasks)} cluster-based loopback IP tasks in {cluster_loopback_output}"
             )
             files_written += 1
 
