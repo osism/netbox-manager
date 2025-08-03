@@ -913,27 +913,19 @@ def _generate_loopback_interfaces() -> list[dict]:
         if not should_have_loopback:
             continue
 
-        # Check if the device already has a Loopback0 interface
-        existing_loopback = netbox_api.dcim.interfaces.filter(
-            device_id=device.id, name="Loopback0"
-        )
-
-        if not existing_loopback:
-            # Create Loopback0 interface task
-            tasks.append(
-                {
-                    "device_interface": {
-                        "device": device.name,
-                        "name": "Loopback0",
-                        "type": "virtual",
-                        "enabled": True,
-                        "tags": ["managed-by-osism"],
-                    }
+        # Create Loopback0 interface task (always create regardless of existence)
+        tasks.append(
+            {
+                "device_interface": {
+                    "device": device.name,
+                    "name": "Loopback0",
+                    "type": "virtual",
+                    "enabled": True,
+                    "tags": ["managed-by-osism"],
                 }
-            )
-            logger.info(f"Will create Loopback0 interface for device: {device.name}")
-        else:
-            logger.debug(f"Device {device.name} already has Loopback0 interface")
+            }
+        )
+        logger.info(f"Will create Loopback0 interface for device: {device.name}")
 
     logger.info(f"Generated {len(tasks)} Loopback0 interface creation tasks")
     return tasks
