@@ -931,6 +931,66 @@ def _generate_loopback_interfaces() -> list[dict]:
     return tasks
 
 
+def _get_cluster_segment_config_context(
+    netbox_api: pynetbox.api, cluster_id: int, cluster_name: str = ""
+) -> dict:
+    """
+    Retrieve the specific segment config context for a cluster via separate API call.
+
+    Each cluster has a config context assigned with the same name as the segment.
+    This function retrieves the content of that specific config context.
+
+    Args:
+        netbox_api: The NetBox API connection
+        cluster_id: The cluster ID to retrieve context for
+        cluster_name: Optional cluster name for logging
+
+    Returns:
+        dict: The configuration context data from the segment-specific config context
+    """
+    try:
+        logger.debug(
+            f"Retrieving segment config context for cluster {cluster_name} (ID: {cluster_id}) via separate API call"
+        )
+
+        # Get all config contexts that apply to this cluster
+        config_contexts = netbox_api.extras.config_contexts.filter(clusters=cluster_id)
+
+        # Look for the config context with the same name as the cluster (segment name)
+        segment_context = None
+        for ctx in config_contexts:
+            if ctx.name == cluster_name:
+                logger.debug(
+                    f"Found segment config context: '{ctx.name}' for cluster {cluster_name}"
+                )
+                segment_context = ctx
+                break
+
+        if segment_context and segment_context.data:
+            logger.info(
+                f"Retrieved segment config context '{segment_context.name}' for cluster {cluster_name}"
+            )
+
+            # Log the specific loopback configuration found
+            if "_loopback_network_ipv4" in segment_context.data:
+                logger.debug(
+                    f"Found loopback config in {segment_context.name}: IPv4={segment_context.data.get('_loopback_network_ipv4')}, IPv6={segment_context.data.get('_loopback_network_ipv6')}"
+                )
+
+            return segment_context.data
+        else:
+            logger.warning(
+                f"No segment config context found for cluster {cluster_name} (expected config context with name '{cluster_name}')"
+            )
+            return {}
+
+    except Exception as e:
+        logger.error(
+            f"Error retrieving segment config context for cluster {cluster_name} (ID: {cluster_id}): {e}"
+        )
+        return {}
+
+
 def _generate_cluster_loopback_tasks() -> list[dict]:
     """Generate loopback IP address assignments for devices with assigned clusters."""
     tasks = []
@@ -970,16 +1030,16 @@ def _generate_cluster_loopback_tasks() -> list[dict]:
 
         logger.info(f"Processing cluster '{cluster.name}' with {len(devices)} devices")
 
-        # Get the full cluster object to access config_context
+        # Get the segment-specific config context via separate API call
         try:
-            full_cluster = netbox_api.virtualization.clusters.get(cluster_id)
-            if not full_cluster:
+            config_context = _get_cluster_segment_config_context(
+                netbox_api, cluster_id, cluster.name
+            )
+            if not config_context:
                 logger.warning(
-                    f"Could not retrieve full cluster object for cluster {cluster.name}"
+                    f"Could not retrieve segment config context for cluster {cluster.name}"
                 )
                 continue
-
-            config_context = getattr(full_cluster, "config_context", {}) or {}
 
             # Extract loopback network configuration
             loopback_ipv4_network = config_context.get("_loopback_network_ipv4")
