@@ -978,6 +978,11 @@ def _get_cluster_segment_config_context(
                 )
 
             return segment_context.data
+        elif segment_context and not segment_context.data:
+            logger.warning(
+                f"Config context '{segment_context.name}' found for cluster {cluster_name} but contains no data"
+            )
+            return {}
         else:
             logger.warning(
                 f"No segment config context found for cluster {cluster_name} (expected config context with name '{cluster_name}')"
@@ -1037,7 +1042,7 @@ def _generate_cluster_loopback_tasks() -> list[dict]:
             )
             if not config_context:
                 logger.warning(
-                    f"Could not retrieve segment config context for cluster {cluster.name}"
+                    f"Cluster '{cluster.name}' has no config context assigned, skipping loopback generation for {len(devices)} devices"
                 )
                 continue
 
@@ -1088,6 +1093,19 @@ def _generate_cluster_loopback_tasks() -> list[dict]:
                         f"Device '{device.name}' has no rack position, skipping loopback generation"
                     )
                     continue
+
+                # Validate position is an integer
+                if not isinstance(position, int):
+                    try:
+                        position = int(position)
+                        logger.debug(
+                            f"Device '{device.name}' position converted from {type(getattr(device, 'position', None)).__name__} to int: {position}"
+                        )
+                    except (ValueError, TypeError) as e:
+                        logger.warning(
+                            f"Device '{device.name}' has invalid position '{getattr(device, 'position', None)}' (not convertible to int), skipping loopback generation: {e}"
+                        )
+                        continue
 
                 # Calculate IPv4 address: byte_4 = device_position * 2 - 1 + offset
                 byte_4 = position * 2 - 1 + loopback_offset_ipv4
