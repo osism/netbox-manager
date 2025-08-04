@@ -182,10 +182,9 @@ def load_global_vars() -> dict:
     """Load and merge global variables from the VARS directory."""
     global_vars: dict[str, Any] = {}
 
-    if not settings.VARS:
+    vars_dir = getattr(settings, "VARS", None)
+    if not vars_dir:
         return global_vars
-
-    vars_dir = settings.VARS
     if not os.path.exists(vars_dir):
         logger.debug(f"VARS directory {vars_dir} does not exist, skipping global vars")
         return global_vars
@@ -542,8 +541,9 @@ def _run_main(
 
         # Find files in numbered subdirectories (excluding vars directory)
         vars_dirname = None
-        if settings.VARS:
-            vars_dirname = os.path.basename(settings.VARS)
+        vars_dir = getattr(settings, "VARS", None)
+        if vars_dir:
+            vars_dirname = os.path.basename(vars_dir)
 
         try:
             for item in os.listdir(settings.RESOURCES):
