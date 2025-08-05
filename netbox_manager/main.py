@@ -1561,6 +1561,9 @@ def purge_command(
             ("dcim.devices", "devices"),
             ("dcim.device_types", "device types"),
             ("dcim.module_types", "module types"),
+            # Virtualization resources (clusters depend on cluster types)
+            ("virtualization.clusters", "clusters"),
+            ("virtualization.cluster_types", "cluster types"),
             # Network resources
             ("ipam.prefixes", "prefixes"),
             ("ipam.vlans", "VLANs"),
