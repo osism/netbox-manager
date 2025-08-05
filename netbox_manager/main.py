@@ -1492,6 +1492,60 @@ def autoconf_command(
         raise typer.Exit(1)
 
 
+def _sort_locations_for_deletion(locations):
+    """
+    Sort locations for deletion in hierarchical order (children first, then parents).
+
+    Args:
+        locations: List of NetBox location objects
+
+    Returns:
+        List of locations sorted for safe deletion order
+    """
+    # Create a mapping of location ID to location object
+    location_map = {loc.id: loc for loc in locations}
+
+    # Build parent-child relationships
+    locations_by_depth = {}  # depth -> list of locations
+
+    def calculate_depth(location, visited=None):
+        """Calculate the depth of a location in the hierarchy."""
+        if visited is None:
+            visited = set()
+
+        # Prevent infinite loops
+        if location.id in visited:
+            return 0
+
+        visited.add(location.id)
+
+        # If location has no parent, it's at depth 0
+        if not location.parent or location.parent.id not in location_map:
+            return 0
+
+        # Otherwise, depth is parent's depth + 1
+        parent_depth = calculate_depth(location_map[location.parent.id], visited.copy())
+        return parent_depth + 1
+
+    # Calculate depth for each location
+    for location in locations:
+        depth = calculate_depth(location)
+        if depth not in locations_by_depth:
+            locations_by_depth[depth] = []
+        locations_by_depth[depth].append(location)
+
+    # Sort by depth in descending order (deepest children first)
+    sorted_locations = []
+    for depth in sorted(locations_by_depth.keys(), reverse=True):
+        # Within each depth level, sort by name for consistent ordering
+        depth_locations = sorted(
+            locations_by_depth[depth], key=lambda loc: loc.name or ""
+        )
+        sorted_locations.extend(depth_locations)
+
+    return sorted_locations
+
+
 @app.command(name="purge", help="Delete all managed resources from NetBox")
 def purge_command(
     debug: Annotated[bool, typer.Option(help="Debug")] = False,
@@ -1619,6 +1673,10 @@ def purge_command(
                     endpoint = getattr(endpoint, part)
 
                 resources = list(endpoint.all())
+
+                # Special handling for locations to sort by hierarchy (children first)
+                if api_path == "dcim.locations" and resources:
+                    resources = _sort_locations_for_deletion(resources)
 
                 if not resources:
                     if verbose:
