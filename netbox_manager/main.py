@@ -1609,13 +1609,7 @@ def purge_command(
                 for part in api_parts:
                     endpoint = getattr(endpoint, part)
 
-                # Get all resources
-                try:
-                    # Filter by managed-by-osism tag if possible
-                    resources = list(endpoint.filter(tag="managed-by-osism"))
-                except Exception:
-                    # If tag filtering fails, get all resources
-                    resources = list(endpoint.all())
+                resources = list(endpoint.all())
 
                 if not resources:
                     logger.debug(f"No {resource_name} found to delete")
