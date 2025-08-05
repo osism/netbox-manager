@@ -1721,8 +1721,11 @@ def purge_command(
                 if verbose:
                     logger.info(f"Deleting {len(resources)} {resource_name}...")
 
-                # Delete resources
+                # Delete resources with retry logic for dependency resolution
                 deleted_count = 0
+                failed_resources = []
+
+                # First pass: attempt to delete all resources
                 for resource in resources:
                     try:
                         # Skip deletion of users and tokens
@@ -1751,14 +1754,80 @@ def purge_command(
                                 resource, "address", getattr(resource, "id", "unknown")
                             ),
                         )
-                        error_msg = (
-                            f"Failed to delete {resource_name} '{name_attr}': {e}"
-                        )
-                        if verbose:
-                            logger.warning(error_msg)
+
+                        # Check if it's a dependency error that might be resolvable
+                        if "dependent objects were found" in str(e) and api_path in [
+                            "dcim.locations",
+                            "dcim.sites",
+                        ]:
+                            failed_resources.append((resource, name_attr))
+                            if verbose:
+                                logger.debug(
+                                    f"  Delaying {resource_name} '{name_attr}' due to dependencies"
+                                )
                         else:
-                            logger.debug(error_msg)
-                        errors.append(f"{resource_name} '{name_attr}': {e}")
+                            error_msg = (
+                                f"Failed to delete {resource_name} '{name_attr}': {e}"
+                            )
+                            if verbose:
+                                logger.warning(error_msg)
+                            else:
+                                logger.debug(error_msg)
+                            errors.append(f"{resource_name} '{name_attr}': {e}")
+
+                # Retry failed resources multiple times to resolve dependencies
+                max_retries = 5
+                retry_count = 0
+
+                while failed_resources and retry_count < max_retries:
+                    retry_count += 1
+                    if verbose and failed_resources:
+                        logger.info(
+                            f"  Retry attempt {retry_count} for {len(failed_resources)} {resource_name} with dependencies..."
+                        )
+
+                    still_failed = []
+
+                    for resource, name_attr in failed_resources:
+                        try:
+                            if verbose:
+                                logger.info(
+                                    f"  Retrying deletion of {resource_name}: {name_attr}"
+                                )
+
+                            resource.delete()
+                            deleted_count += 1
+                        except Exception as e:
+                            if "dependent objects were found" in str(e):
+                                still_failed.append((resource, name_attr))
+                                if verbose:
+                                    logger.debug(
+                                        f"  Still has dependencies: {resource_name} '{name_attr}'"
+                                    )
+                            else:
+                                error_msg = f"Failed to delete {resource_name} '{name_attr}': {e}"
+                                if verbose:
+                                    logger.warning(error_msg)
+                                else:
+                                    logger.debug(error_msg)
+                                errors.append(f"{resource_name} '{name_attr}': {e}")
+
+                    # If no progress was made in this retry, break to avoid infinite loop
+                    if len(still_failed) == len(failed_resources):
+                        break
+
+                    failed_resources = still_failed
+
+                # Record any remaining failed resources as errors
+                for resource, name_attr in failed_resources:
+                    error_msg = f"Failed to delete {resource_name} '{name_attr}' after {retry_count} retries: dependency conflicts"
+                    if verbose:
+                        logger.warning(error_msg)
+                    else:
+                        logger.debug(error_msg)
+                    errors.append(
+                        f"{resource_name} '{name_attr}': dependency conflicts"
+                    )
 
                 if deleted_count > 0:
                     logger.info(f"Deleted {deleted_count} {resource_name}")
