@@ -1550,7 +1550,7 @@ def purge_command(
             ("dcim.cables", "cables"),
             ("dcim.mac_addresses", "MAC addresses"),
             # Device components
-            ("dcim.device_interfaces", "device interfaces"),
+            ("dcim.interfaces", "interfaces"),
             ("dcim.console_server_ports", "console server ports"),
             ("dcim.console_ports", "console ports"),
             ("dcim.power_outlets", "power outlets"),
