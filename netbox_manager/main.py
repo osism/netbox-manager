@@ -1507,6 +1507,9 @@ def purge_command(
     force: Annotated[
         bool, typer.Option(help="Force deletion without confirmation", prompt=False)
     ] = False,
+    verbose: Annotated[
+        bool, typer.Option(help="Show detailed information about what is being deleted")
+    ] = False,
 ) -> None:
     """Delete all managed resources from NetBox.
 
@@ -1517,6 +1520,9 @@ def purge_command(
     - Custom fields
 
     Resources are deleted in reverse dependency order to avoid conflicts.
+
+    Use --verbose to see detailed information about each resource being deleted,
+    including the name/identifier of each individual resource as it's processed.
     """
     # Initialize logger
     init_logger(debug)
@@ -1615,23 +1621,47 @@ def purge_command(
                 resources = list(endpoint.all())
 
                 if not resources:
-                    logger.debug(f"No {resource_name} found to delete")
+                    if verbose:
+                        logger.info(f"No {resource_name} found to delete")
+                    else:
+                        logger.debug(f"No {resource_name} found to delete")
                     continue
 
                 if dryrun:
                     logger.info(f"Would delete {len(resources)} {resource_name}")
-                    for resource in resources[:5]:  # Show first 5 items
-                        name_attr = getattr(
-                            resource,
-                            "name",
-                            getattr(
-                                resource, "address", getattr(resource, "id", "unknown")
-                            ),
-                        )
-                        logger.debug(f"  - {name_attr}")
-                    if len(resources) > 5:
-                        logger.debug(f"  ... and {len(resources) - 5} more")
+                    # Show detailed list when verbose flag is used
+                    if verbose:
+                        for resource in resources:
+                            name_attr = getattr(
+                                resource,
+                                "name",
+                                getattr(
+                                    resource,
+                                    "address",
+                                    getattr(resource, "id", "unknown"),
+                                ),
+                            )
+                            logger.info(f"  Would delete {resource_name}: {name_attr}")
+                    else:
+                        # Show only first 5 items in non-verbose mode
+                        for resource in resources[:5]:
+                            name_attr = getattr(
+                                resource,
+                                "name",
+                                getattr(
+                                    resource,
+                                    "address",
+                                    getattr(resource, "id", "unknown"),
+                                ),
+                            )
+                            logger.debug(f"  - {name_attr}")
+                        if len(resources) > 5:
+                            logger.debug(f"  ... and {len(resources) - 5} more")
                     continue
+
+                # Show start of deletion process for this resource type
+                if verbose:
+                    logger.info(f"Deleting {len(resources)} {resource_name}...")
 
                 # Delete resources
                 deleted_count = 0
@@ -1640,6 +1670,18 @@ def purge_command(
                         # Skip deletion of users and tokens
                         if api_path in ["users.users", "users.tokens", "auth.tokens"]:
                             continue
+
+                        # Get resource identifier for verbose output
+                        name_attr = getattr(
+                            resource,
+                            "name",
+                            getattr(
+                                resource, "address", getattr(resource, "id", "unknown")
+                            ),
+                        )
+
+                        if verbose:
+                            logger.info(f"  Deleting {resource_name}: {name_attr}")
 
                         resource.delete()
                         deleted_count += 1
@@ -1651,9 +1693,13 @@ def purge_command(
                                 resource, "address", getattr(resource, "id", "unknown")
                             ),
                         )
-                        logger.debug(
+                        error_msg = (
                             f"Failed to delete {resource_name} '{name_attr}': {e}"
                         )
+                        if verbose:
+                            logger.warning(error_msg)
+                        else:
+                            logger.debug(error_msg)
                         errors.append(f"{resource_name} '{name_attr}': {e}")
 
                 if deleted_count > 0:
