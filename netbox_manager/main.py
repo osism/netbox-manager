@@ -1492,6 +1492,204 @@ def autoconf_command(
         raise typer.Exit(1)
 
 
+@app.command(name="purge", help="Delete all managed resources from NetBox")
+def purge_command(
+    debug: Annotated[bool, typer.Option(help="Debug")] = False,
+    dryrun: Annotated[
+        bool, typer.Option(help="Dry run - show what would be deleted")
+    ] = False,
+    limit: Annotated[
+        Optional[str], typer.Option(help="Limit deletion to specific resource type")
+    ] = None,
+    exclude_core: Annotated[
+        bool, typer.Option(help="Exclude core resources (tenants, sites, locations)")
+    ] = False,
+    force: Annotated[
+        bool, typer.Option(help="Force deletion without confirmation", prompt=False)
+    ] = False,
+) -> None:
+    """Delete all managed resources from NetBox.
+
+    This command removes all resources created by netbox-manager while preserving:
+    - Users and user accounts
+    - API tokens
+    - Permissions and roles
+    - Custom fields
+
+    Resources are deleted in reverse dependency order to avoid conflicts.
+    """
+    # Initialize logger
+    init_logger(debug)
+
+    # Validate NetBox connection settings
+    validate_netbox_connection()
+
+    # Confirm deletion unless force flag is set
+    if not force and not dryrun:
+        confirm = typer.confirm(
+            "⚠️  This will DELETE all managed resources from NetBox. Are you sure?",
+            default=False,
+        )
+        if not confirm:
+            logger.info("Purge cancelled by user")
+            raise typer.Exit()
+
+    try:
+        # Initialize NetBox API connection
+        netbox_api = pynetbox.api(settings.URL, token=settings.TOKEN)
+        if settings.IGNORE_SSL_ERRORS:
+            netbox_api.http_session.verify = False
+
+        logger.info("Starting NetBox purge operation...")
+
+        # Define deletion order (reverse of creation order)
+        # Later items depend on earlier items, so delete in reverse
+        deletion_order = [
+            # Network connections and assignments (most dependent)
+            ("ipam.ip_addresses", "IP addresses"),
+            ("dcim.cables", "cables"),
+            ("dcim.mac_addresses", "MAC addresses"),
+            # Device components
+            ("dcim.device_interfaces", "device interfaces"),
+            ("dcim.console_server_ports", "console server ports"),
+            ("dcim.console_ports", "console ports"),
+            ("dcim.power_outlets", "power outlets"),
+            ("dcim.power_ports", "power ports"),
+            ("dcim.device_bays", "device bays"),
+            ("dcim.inventory_items", "inventory items"),
+            # Devices and infrastructure
+            ("dcim.devices", "devices"),
+            ("dcim.device_types", "device types"),
+            ("dcim.module_types", "module types"),
+            # Network resources
+            ("ipam.prefixes", "prefixes"),
+            ("ipam.vlans", "VLANs"),
+            ("ipam.vlan_groups", "VLAN groups"),
+            ("ipam.vrfs", "VRFs"),
+            # Infrastructure (if not excluded)
+            ("dcim.racks", "racks"),
+            ("dcim.locations", "locations"),
+            ("dcim.sites", "sites"),
+            ("organization.tenants", "tenants"),
+            # Config contexts
+            ("extras.config_contexts", "config contexts"),
+            # Manufacturers (should be last of the device-related items)
+            ("dcim.manufacturers", "manufacturers"),
+        ]
+
+        # Filter deletion order if limit is specified
+        if limit:
+            normalized_limit = limit.replace("-", "_").replace(".", "_")
+            deletion_order = [
+                (api_path, name)
+                for api_path, name in deletion_order
+                if normalized_limit in api_path.replace(".", "_")
+            ]
+            if not deletion_order:
+                logger.error(f"No resource type matching '{limit}' found")
+                raise typer.Exit(1)
+
+        # Apply exclude_core filter
+        if exclude_core:
+            core_resources = ["sites", "locations", "tenants", "racks"]
+            deletion_order = [
+                (api_path, name)
+                for api_path, name in deletion_order
+                if not any(core in name for core in core_resources)
+            ]
+
+        total_deleted = 0
+        errors = []
+
+        for api_path, resource_name in deletion_order:
+            try:
+                # Navigate to the API endpoint
+                api_parts = api_path.split(".")
+                endpoint = netbox_api
+                for part in api_parts:
+                    endpoint = getattr(endpoint, part)
+
+                # Get all resources
+                try:
+                    # Filter by managed-by-osism tag if possible
+                    resources = list(endpoint.filter(tag="managed-by-osism"))
+                except Exception:
+                    # If tag filtering fails, get all resources
+                    resources = list(endpoint.all())
+
+                if not resources:
+                    logger.debug(f"No {resource_name} found to delete")
+                    continue
+
+                if dryrun:
+                    logger.info(f"Would delete {len(resources)} {resource_name}")
+                    for resource in resources[:5]:  # Show first 5 items
+                        name_attr = getattr(
+                            resource,
+                            "name",
+                            getattr(
+                                resource, "address", getattr(resource, "id", "unknown")
+                            ),
+                        )
+                        logger.debug(f"  - {name_attr}")
+                    if len(resources) > 5:
+                        logger.debug(f"  ... and {len(resources) - 5} more")
+                    continue
+
+                # Delete resources
+                deleted_count = 0
+                for resource in resources:
+                    try:
+                        # Skip deletion of users and tokens
+                        if api_path in ["users.users", "users.tokens", "auth.tokens"]:
+                            continue
+
+                        resource.delete()
+                        deleted_count += 1
+                    except Exception as e:
+                        name_attr = getattr(
+                            resource,
+                            "name",
+                            getattr(
+                                resource, "address", getattr(resource, "id", "unknown")
+                            ),
+                        )
+                        logger.debug(
+                            f"Failed to delete {resource_name} '{name_attr}': {e}"
+                        )
+                        errors.append(f"{resource_name} '{name_attr}': {e}")
+
+                if deleted_count > 0:
+                    logger.info(f"Deleted {deleted_count} {resource_name}")
+                    total_deleted += deleted_count
+
+            except AttributeError:
+                logger.debug(f"API endpoint {api_path} not found, skipping")
+            except Exception as e:
+                logger.error(f"Error processing {resource_name}: {e}")
+                errors.append(f"{resource_name}: {e}")
+
+        # Summary
+        if dryrun:
+            logger.info("Dry run complete - no resources were deleted")
+        else:
+            logger.info(f"Purge complete - deleted {total_deleted} resources")
+
+        if errors:
+            logger.warning(f"Encountered {len(errors)} errors during deletion:")
+            for error in errors[:10]:  # Show first 10 errors
+                logger.warning(f"  - {error}")
+            if len(errors) > 10:
+                logger.warning(f"  ... and {len(errors) - 10} more errors")
+
+    except pynetbox.RequestError as e:
+        logger.error(f"NetBox API error: {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        logger.error(f"Error during purge: {e}")
+        raise typer.Exit(1)
+
+
 @app.command(name="version", help="Show version information")
 def version_command() -> None:
     """Display version information for netbox-manager."""
