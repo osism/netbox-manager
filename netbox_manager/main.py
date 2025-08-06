@@ -323,6 +323,7 @@ def handle_file(
     dryrun: bool,
     task_filter: Optional[str] = None,
     device_filters: Optional[List[str]] = None,
+    fail_fast: bool = False,
 ) -> None:
     """Process a single YAML resource file and execute corresponding Ansible playbook."""
     # Load global vars first
@@ -381,12 +382,17 @@ def handle_file(
         if dryrun:
             logger.info(f"Skip the execution of {file} as only one dry run")
         else:
-            ansible_runner.run(
+            result = ansible_runner.run(
                 playbook=temp_file.name,
                 private_data_dir=temp_dir,
                 inventory=inventory,
                 cancel_callback=lambda: None,
             )
+            if fail_fast and result.status == "failed":
+                logger.error(
+                    f"Ansible playbook failed for {file}. Exiting due to --fail option."
+                )
+                raise typer.Exit(1)
 
 
 def signal_handler_sigint(sig: int, frame: Any) -> None:
@@ -505,6 +511,7 @@ def _run_main(
     filter_task: Optional[str] = None,
     include_ignored_files: bool = False,
     filter_device: Optional[list[str]] = None,
+    fail_fast: bool = False,
 ) -> None:
     start = time.time()
 
@@ -736,7 +743,12 @@ def _run_main(
                 ) as executor:
                     futures = [
                         executor.submit(
-                            handle_file, file, dryrun, filter_task, filter_device
+                            handle_file,
+                            file,
+                            dryrun,
+                            filter_task,
+                            filter_device,
+                            fail_fast,
                         )
                         for file in group
                     ]
@@ -785,6 +797,9 @@ def run_command(
         Optional[List[str]],
         typer.Option(help="Filter tasks by device name (can be used multiple times)"),
     ] = None,
+    fail_fast: Annotated[
+        bool, typer.Option("--fail-fast", help="Exit on first Ansible playbook failure")
+    ] = False,
 ) -> None:
     """Process NetBox resources, device types, and module types."""
     _run_main(
@@ -801,6 +816,7 @@ def run_command(
         filter_task,
         include_ignored_files,
         filter_device,
+        fail_fast,
     )
 
 
