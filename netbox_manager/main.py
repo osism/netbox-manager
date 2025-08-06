@@ -996,9 +996,9 @@ def _get_cluster_segment_config_context(
         return {}
 
 
-def _generate_cluster_loopback_tasks() -> list[dict]:
+def _generate_cluster_loopback_tasks() -> dict[str, list[dict]]:
     """Generate loopback IP address assignments for devices with assigned clusters."""
-    tasks = []
+    tasks_by_type: dict[str, list[dict]] = {"ip_address": []}
 
     # Initialize NetBox API connection
     netbox_api = pynetbox.api(settings.URL, token=settings.TOKEN)
@@ -1118,7 +1118,7 @@ def _generate_cluster_loopback_tasks() -> list[dict]:
                     device_ipv4_with_mask = f"{device_ipv4}/32"
 
                     # Generate IPv4 task
-                    tasks.append(
+                    tasks_by_type["ip_address"].append(
                         {
                             "ip_address": {
                                 "address": device_ipv4_with_mask,
@@ -1148,7 +1148,7 @@ def _generate_cluster_loopback_tasks() -> list[dict]:
                                 network_prefix = network_prefix.rstrip(":")
                             device_ipv6 = f"{network_prefix}:0:{ipv6_suffix}/128"
 
-                            tasks.append(
+                            tasks_by_type["ip_address"].append(
                                 {
                                     "ip_address": {
                                         "address": device_ipv6,
@@ -1177,8 +1177,9 @@ def _generate_cluster_loopback_tasks() -> list[dict]:
             logger.error(f"Error processing cluster '{cluster.name}': {e}")
             continue
 
-    logger.info(f"Generated {len(tasks)} cluster-based loopback IP assignment tasks")
-    return tasks
+    total_tasks = sum(len(tasks) for tasks in tasks_by_type.values())
+    logger.info(f"Generated {total_tasks} cluster-based loopback IP assignment tasks")
+    return tasks_by_type
 
 
 def _generate_device_interface_labels() -> list[dict]:
@@ -1285,9 +1286,60 @@ def _generate_device_interface_labels() -> list[dict]:
     return tasks
 
 
-def _generate_autoconf_tasks() -> list[dict]:
+def _split_tasks_by_type(all_tasks: list[dict]) -> dict[str, list[dict]]:
+    """Split a list of tasks into separate lists by resource type."""
+    tasks_by_type: dict[str, list[dict]] = {}
+
+    for task in all_tasks:
+        # Get the first key from the task dict (the resource type)
+        resource_type = next(iter(task.keys()))
+        if resource_type not in tasks_by_type:
+            tasks_by_type[resource_type] = []
+        tasks_by_type[resource_type].append(task)
+
+    return tasks_by_type
+
+
+def _write_autoconf_files(
+    tasks_by_type: dict[str, list[dict]],
+    file_prefix: str,
+    resources_dir: str | None = None,
+) -> int:
+    """Write autoconf tasks to separate files by resource type."""
+    if not resources_dir and settings.RESOURCES:
+        resources_dir = settings.RESOURCES
+
+    files_written = 0
+
+    for resource_type, tasks in tasks_by_type.items():
+        if not tasks:
+            continue
+
+        filename = f"{file_prefix}-{resource_type.replace('_', '-')}.yml"
+
+        if resources_dir:
+            filepath = os.path.join(resources_dir, filename)
+            # Ensure directory exists
+            os.makedirs(resources_dir, exist_ok=True)
+        else:
+            filepath = filename
+
+        with open(filepath, "w") as f:
+            yaml.dump(tasks, f, default_flow_style=False, sort_keys=False)
+
+        logger.info(f"Generated {len(tasks)} {resource_type} tasks in {filepath}")
+        files_written += 1
+
+    return files_written
+
+
+def _generate_autoconf_tasks() -> dict[str, list[dict]]:
     """Generate automatic configuration tasks based on NetBox API data."""
-    tasks = []
+    tasks_by_type: dict[str, list[dict]] = {
+        "device": [],
+        "device_interface": [],
+        "ip_address": [],
+    }
 
     # Initialize NetBox API connection
     netbox_api = pynetbox.api(settings.URL, token=settings.TOKEN)
@@ -1348,7 +1400,7 @@ def _generate_autoconf_tasks() -> list[dict]:
                 mac_to_assign = interface.mac_addresses[0]
 
             if mac_to_assign:
-                tasks.append(
+                tasks_by_type["device_interface"].append(
                     {
                         "device_interface": {
                             "device": device.name,
@@ -1422,10 +1474,11 @@ def _generate_autoconf_tasks() -> list[dict]:
 
     # Create consolidated device tasks from collected assignments
     for device_assignment in device_assignments.values():
-        tasks.append({"device": device_assignment})
+        tasks_by_type["device"].append({"device": device_assignment})
 
-    logger.info(f"Generated {len(tasks)} automatic configuration tasks")
-    return tasks
+    total_tasks = sum(len(tasks) for tasks in tasks_by_type.values())
+    logger.info(f"Generated {total_tasks} automatic configuration tasks")
+    return tasks_by_type
 
 
 @app.command(
@@ -1470,32 +1523,38 @@ def autoconf_command(
 
     try:
         # Generate loopback interface tasks
-        loopback_tasks = _generate_loopback_interfaces()
+        loopback_tasks_list = _generate_loopback_interfaces()
+        loopback_tasks = _split_tasks_by_type(loopback_tasks_list)
 
         # Generate cluster-based loopback IP tasks
         cluster_loopback_tasks = _generate_cluster_loopback_tasks()
 
         # Generate device interface label tasks
-        interface_label_tasks = _generate_device_interface_labels()
+        interface_label_tasks_list = _generate_device_interface_labels()
+        interface_label_tasks = _split_tasks_by_type(interface_label_tasks_list)
 
         # Generate other autoconf tasks
-        other_tasks = _generate_autoconf_tasks()
+        other_autoconf_tasks = _generate_autoconf_tasks()
 
-        # Merge interface label tasks with other tasks
+        # Merge interface label tasks with other autoconf tasks
         # We need to merge device_interface tasks to avoid duplicates
-        merged_tasks = []
+        merged_tasks: dict[str, list[dict]] = {}
         interface_task_map = {}
 
-        # First, collect all interface label tasks
-        for task in interface_label_tasks:
+        # First, collect all interface label tasks by device:interface key
+        for task in interface_label_tasks.get("device_interface", []):
             if "device_interface" in task:
                 device_name = task["device_interface"]["device"]
                 interface_name = task["device_interface"]["name"]
                 key = f"{device_name}:{interface_name}"
                 interface_task_map[key] = task["device_interface"]
 
-        # Then, merge with other tasks, updating existing device_interface tasks
-        for task in other_tasks:
+        # Initialize merged_tasks with all resource types
+        for resource_type in ["device", "device_interface", "ip_address"]:
+            merged_tasks[resource_type] = []
+
+        # Merge device_interface tasks from other_autoconf_tasks
+        for task in other_autoconf_tasks.get("device_interface", []):
             if "device_interface" in task:
                 device_name = task["device_interface"]["device"]
                 interface_name = task["device_interface"]["name"]
@@ -1507,138 +1566,107 @@ def autoconf_command(
                         **task["device_interface"],
                         **interface_task_map[key],
                     }
-                    merged_tasks.append({"device_interface": merged_interface})
+                    merged_tasks["device_interface"].append(
+                        {"device_interface": merged_interface}
+                    )
                     # Remove from interface_task_map so we don't add it twice
                     del interface_task_map[key]
                 else:
-                    merged_tasks.append(task)
+                    merged_tasks["device_interface"].append(task)
             else:
-                merged_tasks.append(task)
+                # This shouldn't happen but handle it gracefully
+                merged_tasks["device_interface"].append(task)
 
         # Add any remaining interface label tasks that weren't merged
         for interface_data in interface_task_map.values():
-            merged_tasks.append({"device_interface": interface_data})
+            merged_tasks["device_interface"].append(
+                {"device_interface": interface_data}
+            )
+
+        # Add other resource types from other_autoconf_tasks
+        for resource_type in ["device", "ip_address"]:
+            merged_tasks[resource_type].extend(
+                other_autoconf_tasks.get(resource_type, [])
+            )
 
         # Replace other_tasks with merged tasks
         other_tasks = merged_tasks
 
         if dryrun:
-            if loopback_tasks:
+            if any(tasks for tasks in loopback_tasks.values()):
                 logger.info(
                     "Dry run - would generate the following loopback interface tasks:"
                 )
-                for task in loopback_tasks:
-                    logger.info(
-                        f"  {yaml.dump(task, default_flow_style=False).strip()}"
-                    )
+                for resource_type, tasks in loopback_tasks.items():
+                    if tasks:
+                        logger.info(f"  {resource_type}:")
+                        for task in tasks:
+                            logger.info(
+                                f"    {yaml.dump(task, default_flow_style=False).strip()}"
+                            )
 
-            if cluster_loopback_tasks:
+            if any(tasks for tasks in cluster_loopback_tasks.values()):
                 logger.info(
                     "Dry run - would generate the following cluster-based loopback IP tasks:"
                 )
-                for task in cluster_loopback_tasks:
-                    logger.info(
-                        f"  {yaml.dump(task, default_flow_style=False).strip()}"
-                    )
+                for resource_type, tasks in cluster_loopback_tasks.items():
+                    if tasks:
+                        logger.info(f"  {resource_type}:")
+                        for task in tasks:
+                            logger.info(
+                                f"    {yaml.dump(task, default_flow_style=False).strip()}"
+                            )
 
-            if interface_label_tasks:
-                logger.info(
-                    "Dry run - would generate the following device interface label tasks:"
-                )
-                for task in interface_label_tasks:
-                    logger.info(
-                        f"  {yaml.dump(task, default_flow_style=False).strip()}"
-                    )
-
-            if other_tasks:
+            if any(tasks for tasks in other_tasks.values()):
                 logger.info(
                     "Dry run - would generate the following other autoconf tasks:"
                 )
-                for task in other_tasks:
-                    logger.info(
-                        f"  {yaml.dump(task, default_flow_style=False).strip()}"
-                    )
+                for resource_type, tasks in other_tasks.items():
+                    if tasks:
+                        logger.info(f"  {resource_type}:")
+                        for task in tasks:
+                            logger.info(
+                                f"    {yaml.dump(task, default_flow_style=False).strip()}"
+                            )
             return
 
         files_written = 0
 
-        # Handle loopback interfaces file
-        if loopback_tasks:
-            # Ensure output directory exists for loopback file
-            loopback_output_dir = (
+        # Handle loopback interfaces files (split by type)
+        if any(tasks for tasks in loopback_tasks.values()):
+            loopback_prefix = os.path.splitext(os.path.basename(loopback_output))[0]
+            loopback_dir = (
                 os.path.dirname(loopback_output)
                 if os.path.dirname(loopback_output)
                 else settings.RESOURCES
             )
-            if loopback_output_dir and not os.path.exists(loopback_output_dir):
-                os.makedirs(loopback_output_dir, exist_ok=True)
-
-            # If loopback_output is just a filename, put it in the RESOURCES directory
-            if not os.path.dirname(loopback_output) and settings.RESOURCES:
-                loopback_output = os.path.join(settings.RESOURCES, loopback_output)
-
-            # Write loopback tasks to YAML file
-            with open(loopback_output, "w") as f:
-                yaml.dump(loopback_tasks, f, default_flow_style=False, sort_keys=False)
-
-            logger.info(
-                f"Generated {len(loopback_tasks)} loopback interface tasks in {loopback_output}"
+            files_written += _write_autoconf_files(
+                loopback_tasks, loopback_prefix, loopback_dir
             )
-            files_written += 1
 
-        # Handle cluster-based loopback IP tasks file
-        if cluster_loopback_tasks:
-            # Ensure output directory exists for cluster loopback file
-            cluster_loopback_output_dir = (
+        # Handle cluster-based loopback IP tasks files (split by type)
+        if any(tasks for tasks in cluster_loopback_tasks.values()):
+            cluster_loopback_prefix = os.path.splitext(
+                os.path.basename(cluster_loopback_output)
+            )[0]
+            cluster_loopback_dir = (
                 os.path.dirname(cluster_loopback_output)
                 if os.path.dirname(cluster_loopback_output)
                 else settings.RESOURCES
             )
-            if cluster_loopback_output_dir and not os.path.exists(
-                cluster_loopback_output_dir
-            ):
-                os.makedirs(cluster_loopback_output_dir, exist_ok=True)
-
-            # If cluster_loopback_output is just a filename, put it in the RESOURCES directory
-            if not os.path.dirname(cluster_loopback_output) and settings.RESOURCES:
-                cluster_loopback_output = os.path.join(
-                    settings.RESOURCES, cluster_loopback_output
-                )
-
-            # Write cluster loopback tasks to YAML file
-            with open(cluster_loopback_output, "w") as f:
-                yaml.dump(
-                    cluster_loopback_tasks, f, default_flow_style=False, sort_keys=False
-                )
-
-            logger.info(
-                f"Generated {len(cluster_loopback_tasks)} cluster-based loopback IP tasks in {cluster_loopback_output}"
+            files_written += _write_autoconf_files(
+                cluster_loopback_tasks, cluster_loopback_prefix, cluster_loopback_dir
             )
-            files_written += 1
 
-        # Handle other autoconf tasks file
-        if other_tasks:
-            # Ensure output directory exists
-            output_dir = (
+        # Handle other autoconf tasks files (split by type)
+        if any(tasks for tasks in other_tasks.values()):
+            other_prefix = os.path.splitext(os.path.basename(output))[0]
+            other_dir = (
                 os.path.dirname(output)
                 if os.path.dirname(output)
                 else settings.RESOURCES
             )
-            if output_dir and not os.path.exists(output_dir):
-                os.makedirs(output_dir, exist_ok=True)
-
-            # If output is just a filename, put it in the RESOURCES directory
-            if not os.path.dirname(output) and settings.RESOURCES:
-                output = os.path.join(settings.RESOURCES, output)
-
-            # Write other tasks to YAML file
-            with open(output, "w") as f:
-                yaml.dump(other_tasks, f, default_flow_style=False, sort_keys=False)
-
-            logger.info(
-                f"Generated {len(other_tasks)} other autoconf tasks in {output}"
-            )
-            files_written += 1
+            files_written += _write_autoconf_files(other_tasks, other_prefix, other_dir)
 
         if files_written == 0:
             logger.info("No automatic configuration tasks found")
