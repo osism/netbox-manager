@@ -1226,63 +1226,60 @@ def _generate_device_interface_labels() -> list[dict]:
             f"Processing switch {switch_device.name} with label '{label_value}'"
         )
 
-        # Get all cables connected to this switch
-        switch_cables = netbox_api.dcim.cables.filter(device=switch_device.name)
+        # Get all interfaces for this switch
+        switch_interfaces = netbox_api.dcim.interfaces.filter(
+            device_id=switch_device.id
+        )
 
-        for cable in switch_cables:
-            # Check both termination ends to find connected node devices
-            for termination_attr in ["termination_a", "termination_b"]:
-                termination = getattr(cable, termination_attr, None)
-                if not termination:
+        for interface in switch_interfaces:
+            # Check if interface has connected endpoints
+            if (
+                not hasattr(interface, "connected_endpoints")
+                or not interface.connected_endpoints
+            ):
+                continue
+
+            # Process each connected endpoint
+            for endpoint in interface.connected_endpoints:
+                # Check if endpoint has a device
+                if not hasattr(endpoint, "device") or not endpoint.device:
                     continue
 
-                # Check if this termination is the switch (skip it)
-                if (
-                    hasattr(termination, "device")
-                    and termination.device
-                    and hasattr(termination.device, "id")
-                    and termination.device.id == switch_device.id
-                ):
+                connected_device = endpoint.device
+
+                # Check if connected device has a role
+                if not hasattr(connected_device, "role") or not connected_device.role:
                     continue
 
-                # Check if the other end is a node device
-                if (
-                    hasattr(termination, "device")
-                    and termination.device
-                    and hasattr(termination.device, "role")
-                ):
+                # Get the role of the connected device
+                if hasattr(connected_device.role, "slug"):
+                    connected_role_slug = connected_device.role.slug.lower()
+                elif hasattr(connected_device.role, "name"):
+                    connected_role_slug = connected_device.role.name.lower()
+                else:
+                    connected_role_slug = ""
 
-                    connected_device = termination.device
-
-                    # Get the role of the connected device
-                    if hasattr(connected_device.role, "slug"):
-                        connected_role_slug = connected_device.role.slug.lower()
-                    elif hasattr(connected_device.role, "name"):
-                        connected_role_slug = connected_device.role.name.lower()
-                    else:
-                        connected_role_slug = ""
-
-                    # Check if connected device is a node
-                    if connected_role_slug in NETBOX_NODE_ROLES:
-                        # Get the interface name
-                        interface_name = getattr(termination, "name", None)
-                        if interface_name:
-                            tasks.append(
-                                {
-                                    "device_interface": {
-                                        "device": connected_device.name,
-                                        "name": interface_name,
-                                        "label": label_value,
-                                    }
+                # Check if connected device is a node
+                if connected_role_slug in NETBOX_NODE_ROLES:
+                    # Get the interface name of the connected endpoint
+                    interface_name = getattr(endpoint, "name", None)
+                    if interface_name:
+                        tasks.append(
+                            {
+                                "device_interface": {
+                                    "device": connected_device.name,
+                                    "name": interface_name,
+                                    "label": label_value,
                                 }
-                            )
-                            logger.info(
-                                f"Will set label on {connected_device.name}:{interface_name} -> '{label_value}' (from switch {switch_device.name})"
-                            )
-                        else:
-                            logger.warning(
-                                f"Could not determine interface name for cable connection to {connected_device.name}"
-                            )
+                            }
+                        )
+                        logger.info(
+                            f"Will set label on {connected_device.name}:{interface_name} -> '{label_value}' (from switch {switch_device.name}:{interface.name})"
+                        )
+                    else:
+                        logger.warning(
+                            f"Could not determine interface name for connection to {connected_device.name}"
+                        )
 
     logger.info(f"Generated {len(tasks)} device interface label tasks")
     return tasks
