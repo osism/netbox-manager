@@ -1181,6 +1181,113 @@ def _generate_cluster_loopback_tasks() -> list[dict]:
     return tasks
 
 
+def _generate_device_interface_labels() -> list[dict]:
+    """Generate device interface label tasks based on switch custom fields."""
+    tasks = []
+
+    # Initialize NetBox API connection
+    netbox_api = pynetbox.api(settings.URL, token=settings.TOKEN)
+    if settings.IGNORE_SSL_ERRORS:
+        netbox_api.http_session.verify = False
+
+    logger.info("Analyzing switch devices for device interface labeling...")
+
+    # Get all devices and filter for switches with device_interface_label custom field
+    all_devices = netbox_api.dcim.devices.all()
+    switches_with_labels = []
+
+    for device in all_devices:
+        if device.role and hasattr(device.role, "slug"):
+            device_role_slug = device.role.slug.lower()
+        elif device.role and hasattr(device.role, "name"):
+            device_role_slug = device.role.name.lower()
+        else:
+            device_role_slug = ""
+
+        # Check if device is a switch with device_interface_label custom field
+        if device_role_slug in NETBOX_SWITCH_ROLES:
+            if hasattr(device, "custom_fields") and device.custom_fields:
+                device_interface_label = device.custom_fields.get(
+                    "device_interface_label"
+                )
+                if device_interface_label:
+                    switches_with_labels.append((device, device_interface_label))
+                    logger.debug(
+                        f"Found switch {device.name} with device_interface_label: {device_interface_label}"
+                    )
+
+    logger.info(
+        f"Found {len(switches_with_labels)} switches with device_interface_label custom field"
+    )
+
+    # Process each switch with device_interface_label
+    for switch_device, label_value in switches_with_labels:
+        logger.debug(
+            f"Processing switch {switch_device.name} with label '{label_value}'"
+        )
+
+        # Get all cables connected to this switch
+        switch_cables = netbox_api.dcim.cables.filter(device=switch_device.name)
+
+        for cable in switch_cables:
+            # Check both termination ends to find connected node devices
+            for termination_attr in ["termination_a", "termination_b"]:
+                termination = getattr(cable, termination_attr, None)
+                if not termination:
+                    continue
+
+                # Check if this termination is the switch (skip it)
+                if (
+                    hasattr(termination, "device")
+                    and termination.device
+                    and hasattr(termination.device, "id")
+                    and termination.device.id == switch_device.id
+                ):
+                    continue
+
+                # Check if the other end is a node device
+                if (
+                    hasattr(termination, "device")
+                    and termination.device
+                    and hasattr(termination.device, "role")
+                ):
+
+                    connected_device = termination.device
+
+                    # Get the role of the connected device
+                    if hasattr(connected_device.role, "slug"):
+                        connected_role_slug = connected_device.role.slug.lower()
+                    elif hasattr(connected_device.role, "name"):
+                        connected_role_slug = connected_device.role.name.lower()
+                    else:
+                        connected_role_slug = ""
+
+                    # Check if connected device is a node
+                    if connected_role_slug in NETBOX_NODE_ROLES:
+                        # Get the interface name
+                        interface_name = getattr(termination, "name", None)
+                        if interface_name:
+                            tasks.append(
+                                {
+                                    "device_interface": {
+                                        "device": connected_device.name,
+                                        "name": interface_name,
+                                        "label": label_value,
+                                    }
+                                }
+                            )
+                            logger.info(
+                                f"Will set label on {connected_device.name}:{interface_name} -> '{label_value}' (from switch {switch_device.name})"
+                            )
+                        else:
+                            logger.warning(
+                                f"Could not determine interface name for cable connection to {connected_device.name}"
+                            )
+
+    logger.info(f"Generated {len(tasks)} device interface label tasks")
+    return tasks
+
+
 def _generate_autoconf_tasks() -> list[dict]:
     """Generate automatic configuration tasks based on NetBox API data."""
     tasks = []
@@ -1347,14 +1454,16 @@ def autoconf_command(
 
     1. Create Loopback0 interfaces for switches and devices with specific roles
     2. Generate cluster-based loopback IP addresses for devices with assigned clusters
-    3. Assign primary MAC addresses to interfaces that have exactly one MAC
-    4. Assign OOB IP addresses from eth0 interfaces to devices
-    5. Assign primary IPv4 addresses from Loopback0 interfaces to devices
-    6. Assign primary IPv6 addresses from Loopback0 interfaces to devices
+    3. Set interface labels on connected node devices based on switch device_interface_label custom field
+    4. Assign primary MAC addresses to interfaces that have exactly one MAC
+    5. Assign OOB IP addresses from eth0 interfaces to devices
+    6. Assign primary IPv4 addresses from Loopback0 interfaces to devices
+    7. Assign primary IPv6 addresses from Loopback0 interfaces to devices
 
     The loopback interface tasks are written to 299-autoconf.yml, cluster-based
-    loopback IP tasks are written to 399-autoconf.yml, and other tasks are written
-    to 999-autoconf.yml in the standard netbox-manager resource format.
+    loopback IP tasks are written to 399-autoconf.yml, and other tasks (including
+    interface labels) are written to 999-autoconf.yml in the standard netbox-manager
+    resource format.
     """
     # Initialize logger
     init_logger(debug)
@@ -1369,8 +1478,52 @@ def autoconf_command(
         # Generate cluster-based loopback IP tasks
         cluster_loopback_tasks = _generate_cluster_loopback_tasks()
 
+        # Generate device interface label tasks
+        interface_label_tasks = _generate_device_interface_labels()
+
         # Generate other autoconf tasks
         other_tasks = _generate_autoconf_tasks()
+
+        # Merge interface label tasks with other tasks
+        # We need to merge device_interface tasks to avoid duplicates
+        merged_tasks = []
+        interface_task_map = {}
+
+        # First, collect all interface label tasks
+        for task in interface_label_tasks:
+            if "device_interface" in task:
+                device_name = task["device_interface"]["device"]
+                interface_name = task["device_interface"]["name"]
+                key = f"{device_name}:{interface_name}"
+                interface_task_map[key] = task["device_interface"]
+
+        # Then, merge with other tasks, updating existing device_interface tasks
+        for task in other_tasks:
+            if "device_interface" in task:
+                device_name = task["device_interface"]["device"]
+                interface_name = task["device_interface"]["name"]
+                key = f"{device_name}:{interface_name}"
+
+                if key in interface_task_map:
+                    # Merge the tasks - combine all fields
+                    merged_interface = {
+                        **task["device_interface"],
+                        **interface_task_map[key],
+                    }
+                    merged_tasks.append({"device_interface": merged_interface})
+                    # Remove from interface_task_map so we don't add it twice
+                    del interface_task_map[key]
+                else:
+                    merged_tasks.append(task)
+            else:
+                merged_tasks.append(task)
+
+        # Add any remaining interface label tasks that weren't merged
+        for interface_data in interface_task_map.values():
+            merged_tasks.append({"device_interface": interface_data})
+
+        # Replace other_tasks with merged tasks
+        other_tasks = merged_tasks
 
         if dryrun:
             if loopback_tasks:
@@ -1387,6 +1540,15 @@ def autoconf_command(
                     "Dry run - would generate the following cluster-based loopback IP tasks:"
                 )
                 for task in cluster_loopback_tasks:
+                    logger.info(
+                        f"  {yaml.dump(task, default_flow_style=False).strip()}"
+                    )
+
+            if interface_label_tasks:
+                logger.info(
+                    "Dry run - would generate the following device interface label tasks:"
+                )
+                for task in interface_label_tasks:
                     logger.info(
                         f"  {yaml.dump(task, default_flow_style=False).strip()}"
                     )
