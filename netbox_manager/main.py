@@ -14,7 +14,7 @@ import sys
 import tarfile
 import tempfile
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Tuple, Dict, List
 from typing_extensions import Annotated
 import warnings
 
@@ -142,15 +142,16 @@ playbook_template = """
 
 
 def get_leading_number(path: str) -> str:
+    """Extract the leading number from a filename for grouping purposes."""
     basename = os.path.basename(path)
     return basename.split("-")[0]
 
 
-def find_device_names_in_structure(data: dict) -> list[str]:
+def find_device_names_in_structure(data: Dict[str, Any]) -> List[str]:
     """Recursively search for device names in a nested data structure."""
     device_names = []
 
-    def _recursive_search(obj):
+    def _recursive_search(obj: Any) -> None:
         if isinstance(obj, dict):
             for key, value in obj.items():
                 if key == "device" and isinstance(value, str):
@@ -165,7 +166,7 @@ def find_device_names_in_structure(data: dict) -> list[str]:
     return device_names
 
 
-def deep_merge(dict1: dict, dict2: dict) -> dict:
+def deep_merge(dict1: Dict[str, Any], dict2: Dict[str, Any]) -> Dict[str, Any]:
     """Deep merge two dictionaries, with dict2 values taking precedence."""
     result = deepcopy(dict1)
 
@@ -178,9 +179,50 @@ def deep_merge(dict1: dict, dict2: dict) -> dict:
     return result
 
 
-def load_global_vars() -> dict:
+def find_yaml_files(directory: str) -> List[str]:
+    """Find all YAML files in a directory and return sorted list."""
+    yaml_files = []
+    for ext in ["*.yml", "*.yaml"]:
+        yaml_files.extend(glob.glob(os.path.join(directory, ext)))
+    return sorted(yaml_files)
+
+
+def create_netbox_api() -> pynetbox.api:
+    """Create and configure NetBox API connection."""
+    api = pynetbox.api(settings.URL, token=settings.TOKEN)
+    if settings.IGNORE_SSL_ERRORS:
+        api.http_session.verify = False
+    return api
+
+
+def get_device_role_slug(device: Any) -> str:
+    """Extract device role slug from a device object."""
+    if not device.role:
+        return ""
+
+    if hasattr(device.role, "slug"):
+        return device.role.slug.lower()
+    elif hasattr(device.role, "name"):
+        return device.role.name.lower()
+    return ""
+
+
+def get_resource_name(resource: Any) -> str:
+    """Extract a displayable name from a resource object."""
+    return getattr(
+        resource,
+        "name",
+        getattr(
+            resource,
+            "address",
+            getattr(resource, "id", "unknown"),
+        ),
+    )
+
+
+def load_global_vars() -> Dict[str, Any]:
     """Load and merge global variables from the VARS directory."""
-    global_vars: dict[str, Any] = {}
+    global_vars: Dict[str, Any] = {}
 
     vars_dir = getattr(settings, "VARS", None)
     if not vars_dir:
@@ -189,14 +231,7 @@ def load_global_vars() -> dict:
         logger.debug(f"VARS directory {vars_dir} does not exist, skipping global vars")
         return global_vars
 
-    # Find all YAML files in the vars directory
-    yaml_files = []
-    for ext in ["*.yml", "*.yaml"]:
-        yaml_files.extend(glob.glob(os.path.join(vars_dir, ext)))
-
-    # Sort files by filename for consistent order
-    yaml_files.sort()
-
+    yaml_files = find_yaml_files(vars_dir)
     logger.debug(f"Loading global vars from {len(yaml_files)} files in {vars_dir}")
 
     for yaml_file in yaml_files:
@@ -212,14 +247,84 @@ def load_global_vars() -> dict:
     return global_vars
 
 
+def should_skip_task_by_filter(key: str, task_filter: str) -> bool:
+    """Check if task should be skipped based on task filter."""
+    normalized_filter = task_filter.replace("-", "_")
+    normalized_key = key.replace("-", "_")
+    return normalized_key != normalized_filter
+
+
+def extract_device_names_from_task(key: str, value: Dict[str, Any]) -> List[str]:
+    """Extract all device names referenced in a task."""
+    device_names = []
+
+    # Check if task has a 'device' field (for tasks that reference a device)
+    if "device" in value:
+        device_names.append(value["device"])
+    # Check if task has a 'name' field and this is a device creation task
+    elif key == "device" and "name" in value:
+        device_names.append(value["name"])
+
+    # Search for device names in nested structures
+    nested_device_names = find_device_names_in_structure(value)
+    device_names.extend(nested_device_names)
+
+    return device_names
+
+
+def should_skip_task_by_device_filter(
+    device_names: List[str], device_filters: List[str]
+) -> bool:
+    """Check if task should be skipped based on device filters."""
+    if not device_names:
+        return True  # Skip if no device names found
+
+    return not any(
+        filter_device in device_name
+        for device_name in device_names
+        for filter_device in device_filters
+    )
+
+
+def create_netbox_task(key: str, value: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a NetBox Ansible task from resource data."""
+    state = value.pop("state", "present")
+
+    return {
+        "name": f"Manage NetBox resource {value.get('name', '')} of type {key}".replace(
+            "  ", " "
+        ),
+        f"netbox.netbox.netbox_{key}": {
+            "data": value,
+            "state": state,
+            "netbox_token": settings.TOKEN,
+            "netbox_url": settings.URL,
+            "validate_certs": not settings.IGNORE_SSL_ERRORS,
+        },
+    }
+
+
+def create_ansible_playbook(
+    file: str, template_vars: Dict[str, Any], template_tasks: List[Dict[str, Any]]
+) -> str:
+    """Create Ansible playbook from template variables and tasks."""
+    template = Template(playbook_template)
+    return template.render(
+        {
+            "name": os.path.basename(file),
+            "vars": yaml.dump(template_vars, indent=2, default_flow_style=False),
+            "tasks": yaml.dump(template_tasks, indent=2, default_flow_style=False),
+        }
+    )
+
+
 def handle_file(
     file: str,
     dryrun: bool,
     task_filter: Optional[str] = None,
-    device_filters: Optional[list[str]] = None,
+    device_filters: Optional[List[str]] = None,
 ) -> None:
-    template = Template(playbook_template)
-
+    """Process a single YAML resource file and execute corresponding Ansible playbook."""
     # Load global vars first
     template_vars = load_global_vars()
     template_tasks = []
@@ -237,72 +342,27 @@ def handle_file(
                 template_tasks.append(task)
             else:
                 # Apply task filter if specified
-                if task_filter:
-                    # Normalize filter to handle both underscore and hyphen variations
-                    normalized_filter = task_filter.replace("-", "_")
-                    normalized_key = key.replace("-", "_")
-
-                    if normalized_key != normalized_filter:
-                        logger.debug(
-                            f"Skipping task of type '{key}' (filter: {task_filter})"
-                        )
-                        continue
+                if task_filter and should_skip_task_by_filter(key, task_filter):
+                    logger.debug(
+                        f"Skipping task of type '{key}' (filter: {task_filter})"
+                    )
+                    continue
 
                 # Apply device filter if specified
                 if device_filters:
-                    device_names = []
-
-                    # Check if task has a 'device' field (for tasks that reference a device)
-                    if "device" in value:
-                        device_names.append(value["device"])
-                    # Check if task has a 'name' field and this is a device creation task
-                    elif key == "device" and "name" in value:
-                        device_names.append(value["name"])
-
-                    # Search for device names in nested structures
-                    nested_device_names = find_device_names_in_structure(value)
-                    device_names.extend(nested_device_names)
-
-                    # If we found device names, check if any matches the filters
-                    if device_names:
-                        task_matches_filter = False
-                        for device_name in device_names:
-                            if any(
-                                filter_device in device_name
-                                for filter_device in device_filters
-                            ):
-                                task_matches_filter = True
-                                break
-
-                        if not task_matches_filter:
+                    device_names = extract_device_names_from_task(key, value)
+                    if should_skip_task_by_device_filter(device_names, device_filters):
+                        if device_names:
                             logger.debug(
                                 f"Skipping task with devices '{device_names}' (device filters: {device_filters})"
                             )
-                            continue
-                    else:
-                        # If no device name found and device filters are active, skip this task
-                        logger.debug(
-                            f"Skipping task of type '{key}' with no device reference (device filters active)"
-                        )
+                        else:
+                            logger.debug(
+                                f"Skipping task of type '{key}' with no device reference (device filters active)"
+                            )
                         continue
 
-                state = "present"
-                if "state" in value:
-                    state = value["state"]
-                    del value["state"]
-
-                task = {
-                    "name": f"Manage NetBox resource {value.get('name', '')} of type {key}".replace(
-                        "  ", " "
-                    ),
-                    f"netbox.netbox.netbox_{key}": {
-                        "data": value,
-                        "state": state,
-                        "netbox_token": settings.TOKEN,
-                        "netbox_url": settings.URL,
-                        "validate_certs": not settings.IGNORE_SSL_ERRORS,
-                    },
-                }
+                task = create_netbox_task(key, value)
                 template_tasks.append(task)
 
     # Skip file if no tasks remain after filtering
@@ -310,13 +370,8 @@ def handle_file(
         logger.info(f"No tasks to execute in {file} after filtering")
         return
 
-    playbook_resources = template.render(
-        {
-            "name": os.path.basename(file),
-            "vars": yaml.dump(template_vars, indent=2, default_flow_style=False),
-            "tasks": yaml.dump(template_tasks, indent=2, default_flow_style=False),
-        }
-    )
+    playbook_resources = create_ansible_playbook(file, template_vars, template_tasks)
+
     with tempfile.TemporaryDirectory() as temp_dir:
         with tempfile.NamedTemporaryFile(
             mode="w+", suffix=".yml", delete=False
@@ -334,7 +389,8 @@ def handle_file(
             )
 
 
-def signal_handler_sigint(sig, frame):
+def signal_handler_sigint(sig: int, frame: Any) -> None:
+    """Handle SIGINT signal gracefully."""
     print("SIGINT received. Exit.")
     raise typer.Exit()
 
@@ -352,7 +408,84 @@ def init_logger(debug: bool = False) -> None:
     logger.add(sys.stderr, format=log_fmt, level=log_level, colorize=True)
 
 
-def callback_version(value: bool):
+def process_device_and_module_types(
+    settings_attr: str, skip_flag: bool, type_name: str
+) -> None:
+    """Process device types or module types with common logic."""
+    library_path = getattr(settings, settings_attr, None)
+    if not library_path or skip_flag:
+        return
+
+    logger.info(f"Manage {type_name}")
+    dtl_repo = Repo(library_path)
+    dtl_netbox = NetBox(settings)
+
+    try:
+        files, vendors = dtl_repo.get_devices()
+        types_data = dtl_repo.parse_files(files)
+
+        dtl_netbox.create_manufacturers(vendors)
+
+        if type_name == "devicetypes":
+            dtl_netbox.create_device_types(types_data)
+        else:  # moduletypes
+            dtl_netbox.create_module_types(types_data)
+
+    except FileNotFoundError:
+        logger.error(f"Could not load {type_name} in {library_path}")
+
+
+def discover_resource_files(
+    resources_dir: str, limit: Optional[str] = None
+) -> List[str]:
+    """Discover and return sorted list of resource files."""
+    files = []
+
+    # Find files directly in resources directory
+    for extension in ["yml", "yaml"]:
+        try:
+            top_level_files = glob.glob(os.path.join(resources_dir, f"*.{extension}"))
+            # Apply limit filter at file level
+            if limit:
+                top_level_files = [
+                    f for f in top_level_files if os.path.basename(f).startswith(limit)
+                ]
+            files.extend(top_level_files)
+        except FileNotFoundError:
+            logger.error(f"Could not load resources in {resources_dir}")
+
+    # Find files in numbered subdirectories (excluding vars directory)
+    vars_dirname = None
+    vars_dir = getattr(settings, "VARS", None)
+    if vars_dir:
+        vars_dirname = os.path.basename(vars_dir)
+
+    try:
+        for item in os.listdir(resources_dir):
+            item_path = os.path.join(resources_dir, item)
+            if os.path.isdir(item_path) and (not vars_dirname or item != vars_dirname):
+                # Only process directories that start with a number and hyphen
+                if re.match(r"^\d+-.+", item):
+                    # Apply limit filter at directory level
+                    if limit and not item.startswith(limit):
+                        continue
+
+                    dir_files = []
+                    for extension in ["yml", "yaml"]:
+                        dir_files.extend(
+                            glob.glob(os.path.join(item_path, f"*.{extension}"))
+                        )
+                    # Sort files within the directory by their basename
+                    dir_files.sort(key=lambda f: os.path.basename(f))
+                    files.extend(dir_files)
+    except FileNotFoundError:
+        pass
+
+    return files
+
+
+def callback_version(value: bool) -> None:
+    """Show version and exit if requested."""
     if value:
         print(f"Version {metadata.version('netbox-manager')}")
         raise typer.Exit()
@@ -649,7 +782,7 @@ def run_command(
         bool, typer.Option(help="Include files that are normally ignored")
     ] = False,
     filter_device: Annotated[
-        Optional[list[str]],
+        Optional[List[str]],
         typer.Option(help="Filter tasks by device name (can be used multiple times)"),
     ] = None,
 ) -> None:
@@ -841,91 +974,80 @@ def import_archive(
             raise typer.Exit(1)
 
 
-def _generate_loopback_interfaces() -> list[dict]:
+def has_sonic_hwsku_parameter(device: Any) -> bool:
+    """Check if device has sonic_parameters.hwsku custom field."""
+    if not (hasattr(device, "custom_fields") and device.custom_fields):
+        return False
+
+    sonic_params = device.custom_fields.get("sonic_parameters")
+    return bool(
+        sonic_params and isinstance(sonic_params, dict) and sonic_params.get("hwsku")
+    )
+
+
+def should_have_loopback_interface(device: Any) -> bool:
+    """Determine if a device should have a Loopback0 interface."""
+    device_role_slug = get_device_role_slug(device)
+
+    # Node roles always get Loopback0 interfaces
+    if device_role_slug in NETBOX_NODE_ROLES:
+        return True
+
+    # Switch roles and switch device types only get Loopback0 if they have sonic_parameters.hwsku
+    is_switch_role = device_role_slug in NETBOX_SWITCH_ROLES
+    is_switch_type = (
+        device.device_type
+        and hasattr(device.device_type, "model")
+        and "switch" in device.device_type.model.lower()
+    )
+
+    if is_switch_role or is_switch_type:
+        if has_sonic_hwsku_parameter(device):
+            sonic_params = device.custom_fields.get("sonic_parameters")
+            context = (
+                f"role: {device_role_slug}"
+                if is_switch_role
+                else f"type: {device.device_type.model.lower()}"
+            )
+            logger.debug(
+                f"Switch {device.name} ({context}) has sonic_parameters.hwsku: {sonic_params.get('hwsku')}"
+            )
+            return True
+        else:
+            context = (
+                f"role: {device_role_slug}"
+                if is_switch_role
+                else f"type: {device.device_type.model.lower()}"
+            )
+            logger.debug(
+                f"Switch {device.name} ({context}) does not have sonic_parameters.hwsku, skipping Loopback0"
+            )
+
+    return False
+
+
+def _generate_loopback_interfaces() -> List[Dict[str, Any]]:
     """Generate Loopback0 interfaces for eligible devices that don't have them."""
     tasks = []
-
-    # Initialize NetBox API connection
-    netbox_api = pynetbox.api(settings.URL, token=settings.TOKEN)
-    if settings.IGNORE_SSL_ERRORS:
-        netbox_api.http_session.verify = False
+    netbox_api = create_netbox_api()
 
     logger.info("Analyzing devices for Loopback0 interface creation...")
-
-    # Get all devices
     all_devices = netbox_api.dcim.devices.all()
 
     for device in all_devices:
-        # Determine if this device should have a Loopback0 interface
-        should_have_loopback = False
-
-        # Check if device has role and if it's in the list of roles that need Loopback0
-        if device.role:
-            device_role_slug = ""
-            if hasattr(device.role, "slug"):
-                device_role_slug = device.role.slug.lower()
-            elif hasattr(device.role, "name"):
-                device_role_slug = device.role.name.lower()
-
-            # Node roles always get Loopback0 interfaces
-            if device_role_slug in NETBOX_NODE_ROLES:
-                should_have_loopback = True
-            # Switch roles only get Loopback0 if they have sonic_parameters.hwsku custom field
-            elif device_role_slug in NETBOX_SWITCH_ROLES:
-                # Check for sonic_parameters custom field with hwsku
-                if hasattr(device, "custom_fields") and device.custom_fields:
-                    sonic_params = device.custom_fields.get("sonic_parameters")
-                    if (
-                        sonic_params
-                        and isinstance(sonic_params, dict)
-                        and sonic_params.get("hwsku")
-                    ):
-                        should_have_loopback = True
-                        logger.debug(
-                            f"Switch {device.name} has sonic_parameters.hwsku: {sonic_params.get('hwsku')}"
-                        )
-                    else:
-                        logger.debug(
-                            f"Switch {device.name} does not have sonic_parameters.hwsku, skipping Loopback0"
-                        )
-
-        # Check if device type name contains "switch" (case insensitive)
-        if device.device_type and hasattr(device.device_type, "model"):
-            device_type_name = device.device_type.model.lower()
-            if "switch" in device_type_name:
-                # Also check for sonic_parameters.hwsku for device types containing "switch"
-                if hasattr(device, "custom_fields") and device.custom_fields:
-                    sonic_params = device.custom_fields.get("sonic_parameters")
-                    if (
-                        sonic_params
-                        and isinstance(sonic_params, dict)
-                        and sonic_params.get("hwsku")
-                    ):
-                        should_have_loopback = True
-                        logger.debug(
-                            f"Switch device {device.name} (type: {device_type_name}) has sonic_parameters.hwsku: {sonic_params.get('hwsku')}"
-                        )
-                    else:
-                        logger.debug(
-                            f"Switch device {device.name} (type: {device_type_name}) does not have sonic_parameters.hwsku, skipping Loopback0"
-                        )
-
-        if not should_have_loopback:
-            continue
-
-        # Create Loopback0 interface task (always create regardless of existence)
-        tasks.append(
-            {
-                "device_interface": {
-                    "device": device.name,
-                    "name": "Loopback0",
-                    "type": "virtual",
-                    "enabled": True,
-                    "tags": ["managed-by-osism"],
+        if should_have_loopback_interface(device):
+            tasks.append(
+                {
+                    "device_interface": {
+                        "device": device.name,
+                        "name": "Loopback0",
+                        "type": "virtual",
+                        "enabled": True,
+                        "tags": ["managed-by-osism"],
+                    }
                 }
-            }
-        )
-        logger.info(f"Will create Loopback0 interface for device: {device.name}")
+            )
+            logger.info(f"Will create Loopback0 interface for device: {device.name}")
 
     logger.info(f"Generated {len(tasks)} Loopback0 interface creation tasks")
     return tasks
@@ -933,7 +1055,7 @@ def _generate_loopback_interfaces() -> list[dict]:
 
 def _get_cluster_segment_config_context(
     netbox_api: pynetbox.api, cluster_id: int, cluster_name: str = ""
-) -> dict:
+) -> Dict[str, Any]:
     """
     Retrieve the specific segment config context for a cluster via separate API call.
 
@@ -973,8 +1095,10 @@ def _get_cluster_segment_config_context(
 
             # Log the specific loopback configuration found
             if "_loopback_network_ipv4" in segment_context.data:
+                ipv4_net = segment_context.data.get("_loopback_network_ipv4")
+                ipv6_net = segment_context.data.get("_loopback_network_ipv6")
                 logger.debug(
-                    f"Found loopback config in {segment_context.name}: IPv4={segment_context.data.get('_loopback_network_ipv4')}, IPv6={segment_context.data.get('_loopback_network_ipv6')}"
+                    f"Found loopback config in {segment_context.name}: IPv4={ipv4_net}, IPv6={ipv6_net}"
                 )
 
             return segment_context.data
@@ -996,37 +1120,95 @@ def _get_cluster_segment_config_context(
         return {}
 
 
-def _generate_cluster_loopback_tasks() -> dict[str, list[dict]]:
-    """Generate loopback IP address assignments for devices with assigned clusters."""
-    tasks_by_type: dict[str, list[dict]] = {"ip_address": []}
-
-    # Initialize NetBox API connection
-    netbox_api = pynetbox.api(settings.URL, token=settings.TOKEN)
-    if settings.IGNORE_SSL_ERRORS:
-        netbox_api.http_session.verify = False
-
-    logger.info("Analyzing devices with clusters for loopback IP generation...")
-
-    # Get all devices with clusters assigned
-    devices_with_clusters = []
-    all_devices = netbox_api.dcim.devices.all()
-
-    for device in all_devices:
-        if device.cluster:
-            devices_with_clusters.append(device)
-            logger.debug(
-                f"Found device {device.name} with cluster {device.cluster.name}"
-            )
-
-    logger.info(f"Found {len(devices_with_clusters)} devices with assigned clusters")
-
-    # Group devices by cluster
+def group_devices_by_cluster(
+    devices_with_clusters: List[Any],
+) -> Dict[int, Dict[str, Any]]:
+    """Group devices by their assigned cluster."""
     clusters_dict = {}
     for device in devices_with_clusters:
         cluster_id = device.cluster.id
         if cluster_id not in clusters_dict:
             clusters_dict[cluster_id] = {"cluster": device.cluster, "devices": []}
         clusters_dict[cluster_id]["devices"].append(device)
+    return clusters_dict
+
+
+def calculate_loopback_ips(
+    device: Any, ipv4_network: Any, ipv6_network: Optional[Any], offset: int
+) -> Tuple[Optional[str], Optional[str]]:
+    """Calculate IPv4 and IPv6 loopback addresses for a device."""
+    position = getattr(device, "position", None)
+    if position is None:
+        logger.warning(
+            f"Device '{device.name}' has no rack position, skipping loopback generation"
+        )
+        return None, None
+
+    # Validate position is an integer
+    if not isinstance(position, int):
+        try:
+            position = int(position)
+            logger.debug(
+                f"Device '{device.name}' position converted from {type(getattr(device, 'position', None)).__name__} to int: {position}"
+            )
+        except (ValueError, TypeError) as e:
+            logger.warning(
+                f"Device '{device.name}' has invalid position '{getattr(device, 'position', None)}' (not convertible to int), skipping loopback generation: {e}"
+            )
+            return None, None
+
+    # Calculate IPv4 address: byte_4 = device_position * 2 - 1 + offset
+    byte_4 = position * 2 - 1 + offset
+
+    try:
+        # Convert network to list of octets and modify the last octet
+        network_int = int(ipv4_network.network_address)
+        device_ipv4_int = network_int + byte_4
+        device_ipv4 = ipaddress.IPv4Address(device_ipv4_int)
+        device_ipv4_with_mask = f"{device_ipv4}/32"
+
+        ipv6_addr = None
+        if ipv6_network:
+            try:
+                # Convert IPv4 to IPv6: fd93:363d:dab8:0:10:10:128:3/128
+                ipv4_octets = str(device_ipv4).split(".")
+                ipv6_suffix = f"{ipv4_octets[0]}:{ipv4_octets[1]}:{ipv4_octets[2]}:{ipv4_octets[3]}"
+
+                # Create IPv6 address using the network prefix and IPv4-based suffix
+                network_prefix = str(ipv6_network.network_address).rstrip("::")
+                if network_prefix.endswith(":"):
+                    network_prefix = network_prefix.rstrip(":")
+                ipv6_addr = f"{network_prefix}:0:{ipv6_suffix}/128"
+            except Exception as e:
+                logger.error(
+                    f"Error generating IPv6 address for device '{device.name}': {e}"
+                )
+
+        return device_ipv4_with_mask, ipv6_addr
+
+    except Exception as e:
+        logger.error(f"Error generating IPv4 address for device '{device.name}': {e}")
+        return None, None
+
+
+def _generate_cluster_loopback_tasks() -> Dict[str, List[Dict[str, Any]]]:
+    """Generate loopback IP address assignments for devices with assigned clusters."""
+    tasks_by_type: Dict[str, List[Dict[str, Any]]] = {"ip_address": []}
+    netbox_api = create_netbox_api()
+
+    logger.info("Analyzing devices with clusters for loopback IP generation...")
+
+    # Get all devices with clusters assigned
+    all_devices = netbox_api.dcim.devices.all()
+    devices_with_clusters = [device for device in all_devices if device.cluster]
+
+    for device in devices_with_clusters:
+        logger.debug(f"Found device {device.name} with cluster {device.cluster.name}")
+
+    logger.info(f"Found {len(devices_with_clusters)} devices with assigned clusters")
+
+    # Group devices by cluster
+    clusters_dict = group_devices_by_cluster(devices_with_clusters)
 
     # Process each cluster
     for cluster_id, cluster_data in clusters_dict.items():
@@ -1061,7 +1243,7 @@ def _generate_cluster_loopback_tasks() -> dict[str, list[dict]]:
                 f"Cluster '{cluster.name}' config: IPv4={loopback_ipv4_network}, IPv6={loopback_ipv6_network}, offset={loopback_offset_ipv4}"
             )
 
-            # Parse IPv4 network
+            # Parse networks
             try:
                 ipv4_network = ipaddress.IPv4Network(
                     loopback_ipv4_network, strict=False
@@ -1072,7 +1254,6 @@ def _generate_cluster_loopback_tasks() -> dict[str, list[dict]]:
                 )
                 continue
 
-            # Parse IPv6 network if provided
             ipv6_network = None
             if loopback_ipv6_network:
                 try:
@@ -1086,42 +1267,15 @@ def _generate_cluster_loopback_tasks() -> dict[str, list[dict]]:
 
             # Generate IP addresses for each device
             for device in devices:
-                # Get device position (rack position)
-                position = getattr(device, "position", None)
-                if position is None:
-                    logger.warning(
-                        f"Device '{device.name}' has no rack position, skipping loopback generation"
-                    )
-                    continue
+                ipv4_addr, ipv6_addr = calculate_loopback_ips(
+                    device, ipv4_network, ipv6_network, loopback_offset_ipv4
+                )
 
-                # Validate position is an integer
-                if not isinstance(position, int):
-                    try:
-                        position = int(position)
-                        logger.debug(
-                            f"Device '{device.name}' position converted from {type(getattr(device, 'position', None)).__name__} to int: {position}"
-                        )
-                    except (ValueError, TypeError) as e:
-                        logger.warning(
-                            f"Device '{device.name}' has invalid position '{getattr(device, 'position', None)}' (not convertible to int), skipping loopback generation: {e}"
-                        )
-                        continue
-
-                # Calculate IPv4 address: byte_4 = device_position * 2 - 1 + offset
-                byte_4 = position * 2 - 1 + loopback_offset_ipv4
-
-                try:
-                    # Convert network to list of octets and modify the last octet
-                    network_int = int(ipv4_network.network_address)
-                    device_ipv4_int = network_int + byte_4
-                    device_ipv4 = ipaddress.IPv4Address(device_ipv4_int)
-                    device_ipv4_with_mask = f"{device_ipv4}/32"
-
-                    # Generate IPv4 task
+                if ipv4_addr:
                     tasks_by_type["ip_address"].append(
                         {
                             "ip_address": {
-                                "address": device_ipv4_with_mask,
+                                "address": ipv4_addr,
                                 "assigned_object": {
                                     "name": "Loopback0",
                                     "device": device.name,
@@ -1130,47 +1284,23 @@ def _generate_cluster_loopback_tasks() -> dict[str, list[dict]]:
                         }
                     )
                     logger.info(
-                        f"Generated IPv4 loopback: {device.name} -> {device_ipv4_with_mask}"
+                        f"Generated IPv4 loopback: {device.name} -> {ipv4_addr}"
                     )
 
-                    # Generate IPv6 address based on IPv4
-                    if ipv6_network:
-                        try:
-                            # Convert IPv4 to IPv6: fd93:363d:dab8:0:10:10:128:3/128
-                            ipv4_octets = str(device_ipv4).split(".")
-                            ipv6_suffix = f"{ipv4_octets[0]}:{ipv4_octets[1]}:{ipv4_octets[2]}:{ipv4_octets[3]}"
-
-                            # Create IPv6 address using the network prefix and IPv4-based suffix
-                            network_prefix = str(ipv6_network.network_address).rstrip(
-                                "::"
-                            )
-                            if network_prefix.endswith(":"):
-                                network_prefix = network_prefix.rstrip(":")
-                            device_ipv6 = f"{network_prefix}:0:{ipv6_suffix}/128"
-
-                            tasks_by_type["ip_address"].append(
-                                {
-                                    "ip_address": {
-                                        "address": device_ipv6,
-                                        "assigned_object": {
-                                            "name": "Loopback0",
-                                            "device": device.name,
-                                        },
-                                    }
-                                }
-                            )
-                            logger.info(
-                                f"Generated IPv6 loopback: {device.name} -> {device_ipv6}"
-                            )
-
-                        except Exception as e:
-                            logger.error(
-                                f"Error generating IPv6 address for device '{device.name}': {e}"
-                            )
-
-                except Exception as e:
-                    logger.error(
-                        f"Error generating IPv4 address for device '{device.name}': {e}"
+                if ipv6_addr:
+                    tasks_by_type["ip_address"].append(
+                        {
+                            "ip_address": {
+                                "address": ipv6_addr,
+                                "assigned_object": {
+                                    "name": "Loopback0",
+                                    "device": device.name,
+                                },
+                            }
+                        }
+                    )
+                    logger.info(
+                        f"Generated IPv6 loopback: {device.name} -> {ipv6_addr}"
                     )
 
         except Exception as e:
@@ -1182,14 +1312,10 @@ def _generate_cluster_loopback_tasks() -> dict[str, list[dict]]:
     return tasks_by_type
 
 
-def _generate_device_interface_labels() -> list[dict]:
+def _generate_device_interface_labels() -> List[Dict[str, Any]]:
     """Generate device interface label tasks based on switch custom fields."""
     tasks = []
-
-    # Initialize NetBox API connection
-    netbox_api = pynetbox.api(settings.URL, token=settings.TOKEN)
-    if settings.IGNORE_SSL_ERRORS:
-        netbox_api.http_session.verify = False
+    netbox_api = create_netbox_api()
 
     logger.info("Analyzing switch devices for device interface labeling...")
 
@@ -1198,12 +1324,7 @@ def _generate_device_interface_labels() -> list[dict]:
     switches_with_labels = []
 
     for device in all_devices:
-        if device.role and hasattr(device.role, "slug"):
-            device_role_slug = device.role.slug.lower()
-        elif device.role and hasattr(device.role, "name"):
-            device_role_slug = device.role.name.lower()
-        else:
-            device_role_slug = ""
+        device_role_slug = get_device_role_slug(device)
 
         # Check if device is a switch with device_interface_label custom field
         if device_role_slug in NETBOX_SWITCH_ROLES:
@@ -1234,35 +1355,23 @@ def _generate_device_interface_labels() -> list[dict]:
 
         for interface in switch_interfaces:
             # Check if interface has connected endpoints
-            if (
-                not hasattr(interface, "connected_endpoints")
-                or not interface.connected_endpoints
+            if not (
+                hasattr(interface, "connected_endpoints")
+                and interface.connected_endpoints
             ):
                 continue
 
             # Process each connected endpoint
             for endpoint in interface.connected_endpoints:
                 # Check if endpoint has a device
-                if not hasattr(endpoint, "device") or not endpoint.device:
+                if not (hasattr(endpoint, "device") and endpoint.device):
                     continue
 
                 connected_device = endpoint.device
-
-                # Check if connected device has a role
-                if not hasattr(connected_device, "role") or not connected_device.role:
-                    continue
-
-                # Get the role of the connected device
-                if hasattr(connected_device.role, "slug"):
-                    connected_role_slug = connected_device.role.slug.lower()
-                elif hasattr(connected_device.role, "name"):
-                    connected_role_slug = connected_device.role.name.lower()
-                else:
-                    connected_role_slug = ""
+                connected_role_slug = get_device_role_slug(connected_device)
 
                 # Check if connected device is a node
                 if connected_role_slug in NETBOX_NODE_ROLES:
-                    # Get the interface name of the connected endpoint
                     interface_name = getattr(endpoint, "name", None)
                     if interface_name:
                         tasks.append(
@@ -1286,9 +1395,11 @@ def _generate_device_interface_labels() -> list[dict]:
     return tasks
 
 
-def _split_tasks_by_type(all_tasks: list[dict]) -> dict[str, list[dict]]:
+def _split_tasks_by_type(
+    all_tasks: List[Dict[str, Any]]
+) -> Dict[str, List[Dict[str, Any]]]:
     """Split a list of tasks into separate lists by resource type."""
-    tasks_by_type: dict[str, list[dict]] = {}
+    tasks_by_type: Dict[str, List[Dict[str, Any]]] = {}
 
     for task in all_tasks:
         # Get the first key from the task dict (the resource type)
@@ -1301,9 +1412,9 @@ def _split_tasks_by_type(all_tasks: list[dict]) -> dict[str, list[dict]]:
 
 
 def _write_autoconf_files(
-    tasks_by_type: dict[str, list[dict]],
+    tasks_by_type: Dict[str, List[Dict[str, Any]]],
     file_prefix: str,
-    resources_dir: str | None = None,
+    resources_dir: Optional[str] = None,
 ) -> int:
     """Write autoconf tasks to separate files by resource type."""
     if not resources_dir and settings.RESOURCES:
@@ -1333,74 +1444,45 @@ def _write_autoconf_files(
     return files_written
 
 
-def _generate_autoconf_tasks() -> dict[str, list[dict]]:
-    """Generate automatic configuration tasks based on NetBox API data."""
-    tasks_by_type: dict[str, list[dict]] = {
-        "device": [],
-        "device_interface": [],
-        "ip_address": [],
-    }
+def is_virtual_interface(interface: Any) -> bool:
+    """Check if an interface is virtual based on its type."""
+    if interface.type:
+        if (
+            hasattr(interface.type, "value")
+            and "virtual" in interface.type.value.lower()
+        ):
+            return True
+        if (
+            hasattr(interface.type, "label")
+            and "virtual" in interface.type.label.lower()
+        ):
+            return True
+    return False
 
-    # Initialize NetBox API connection
-    netbox_api = pynetbox.api(settings.URL, token=settings.TOKEN)
-    if settings.IGNORE_SSL_ERRORS:
-        netbox_api.http_session.verify = False
 
-    logger.info("Analyzing NetBox data for automatic configuration...")
-
-    # Get all devices first and filter out switches
-    logger.info("Filtering out switch devices...")
-    all_devices = netbox_api.dcim.devices.all()
-    non_switch_devices = {}
-
-    for device in all_devices:
-        if device.role and hasattr(device.role, "slug"):
-            device_role_slug = device.role.slug.lower()
-        elif device.role and hasattr(device.role, "name"):
-            device_role_slug = device.role.name.lower()
-        else:
-            device_role_slug = ""
-
-        if device_role_slug not in NETBOX_SWITCH_ROLES:
-            non_switch_devices[device.id] = device
-
-    logger.info(
-        f"Found {len(non_switch_devices)} non-switch devices out of {len(all_devices)} total devices"
-    )
-
-    # 1. MAC address assignment for interfaces
+def collect_interface_assignments(
+    netbox_api: pynetbox.api, non_switch_devices: Dict[int, Any]
+) -> List[Dict[str, Any]]:
+    """Collect MAC address assignments for interfaces."""
+    tasks = []
     logger.info("Checking interfaces for MAC address assignments...")
 
     for device_id, device in non_switch_devices.items():
-        # Get interfaces for this specific device
         device_interfaces = netbox_api.dcim.interfaces.filter(device_id=device_id)
 
         for interface in device_interfaces:
-            # Skip virtual interfaces
-            if (
-                interface.type
-                and hasattr(interface.type, "value")
-                and "virtual" in interface.type.value.lower()
-            ):
-                continue
-            if (
-                interface.type
-                and hasattr(interface.type, "label")
-                and "virtual" in interface.type.label.lower()
-            ):
+            if is_virtual_interface(interface):
                 continue
 
             # Check if interface has a MAC address that should be set as primary
             mac_to_assign = None
             if interface.mac_address:
-                # Use existing mac_address as primary_mac_address
                 mac_to_assign = interface.mac_address
             elif interface.mac_addresses and not interface.mac_address:
-                # Use first MAC from mac_addresses list as primary
                 mac_to_assign = interface.mac_addresses[0]
 
             if mac_to_assign:
-                tasks_by_type["device_interface"].append(
+                tasks.append(
                     {
                         "device_interface": {
                             "device": device.name,
@@ -1413,67 +1495,108 @@ def _generate_autoconf_tasks() -> dict[str, list[dict]]:
                     f"Found MAC assignment: {device.name}:{interface.name} -> {mac_to_assign}"
                 )
 
+    return tasks
+
+
+def collect_ip_assignments_by_interface(
+    netbox_api: pynetbox.api,
+    non_switch_devices: Dict[int, Any],
+    interface_name: str,
+    assignment_type: str,
+) -> Dict[str, Dict[str, Any]]:
+    """Collect IP assignments from a specific interface type."""
+    device_assignments = {}
+    logger.info(
+        f"Checking {interface_name} interfaces for {assignment_type} IP assignments..."
+    )
+
+    for device_id, device in non_switch_devices.items():
+        interfaces = netbox_api.dcim.interfaces.filter(
+            device_id=device_id, name=interface_name
+        )
+
+        for interface in interfaces:
+            ip_addresses = netbox_api.ipam.ip_addresses.filter(
+                assigned_object_id=interface.id
+            )
+
+            for ip_addr in ip_addresses:
+                if device.name not in device_assignments:
+                    device_assignments[device.name] = {"name": device.name}
+
+                if assignment_type == "OOB":
+                    device_assignments[device.name]["oob_ip"] = ip_addr.address
+                    logger.info(
+                        f"Found OOB IP assignment: {device.name} -> {ip_addr.address}"
+                    )
+                else:  # Primary IP assignments
+                    if ":" not in ip_addr.address:  # IPv4
+                        device_assignments[device.name]["primary_ip4"] = ip_addr.address
+                        logger.info(
+                            f"Found primary IPv4 assignment: {device.name} -> {ip_addr.address}"
+                        )
+                    else:  # IPv6
+                        device_assignments[device.name]["primary_ip6"] = ip_addr.address
+                        logger.info(
+                            f"Found primary IPv6 assignment: {device.name} -> {ip_addr.address}"
+                        )
+
+    return device_assignments
+
+
+def _generate_autoconf_tasks() -> Dict[str, List[Dict[str, Any]]]:
+    """Generate automatic configuration tasks based on NetBox API data."""
+    tasks_by_type: Dict[str, List[Dict[str, Any]]] = {
+        "device": [],
+        "device_interface": [],
+        "ip_address": [],
+    }
+
+    netbox_api = create_netbox_api()
+    logger.info("Analyzing NetBox data for automatic configuration...")
+
+    # Get all devices first and filter out switches
+    logger.info("Filtering out switch devices...")
+    all_devices = netbox_api.dcim.devices.all()
+    non_switch_devices = {}
+
+    for device in all_devices:
+        device_role_slug = get_device_role_slug(device)
+        if device_role_slug not in NETBOX_SWITCH_ROLES:
+            non_switch_devices[device.id] = device
+
+    logger.info(
+        f"Found {len(non_switch_devices)} non-switch devices out of {len(all_devices)} total devices"
+    )
+
+    # 1. MAC address assignment for interfaces
+    interface_tasks = collect_interface_assignments(netbox_api, non_switch_devices)
+    tasks_by_type["device_interface"].extend(interface_tasks)
+
     # 2. Consolidated device IP assignments (OOB, primary IPv4, primary IPv6)
     logger.info("Checking for device IP assignments...")
 
-    # Dictionary to collect all device assignments by device name
-    device_assignments = {}
-
     # Collect OOB IP assignments from eth0 interfaces
-    logger.info("Checking eth0 interfaces for OOB IP assignments...")
-    for device_id, device in non_switch_devices.items():
-        # Get eth0 interface for this specific device
-        eth0_interfaces = netbox_api.dcim.interfaces.filter(
-            device_id=device_id, name="eth0"
-        )
-
-        for interface in eth0_interfaces:
-            # Get IP addresses assigned to this interface
-            ip_addresses = netbox_api.ipam.ip_addresses.filter(
-                assigned_object_id=interface.id
-            )
-
-            for ip_addr in ip_addresses:
-                if device.name not in device_assignments:
-                    device_assignments[device.name] = {"name": device.name}
-
-                device_assignments[device.name]["oob_ip"] = ip_addr.address
-                logger.info(
-                    f"Found OOB IP assignment: {device.name} -> {ip_addr.address}"
-                )
+    oob_assignments = collect_ip_assignments_by_interface(
+        netbox_api, non_switch_devices, "eth0", "OOB"
+    )
 
     # Collect primary IPv4 and IPv6 assignments from Loopback0 interfaces
-    logger.info("Checking Loopback0 interfaces for primary IP assignments...")
-    for device_id, device in non_switch_devices.items():
-        # Get Loopback0 interface for this specific device
-        loopback_interfaces = netbox_api.dcim.interfaces.filter(
-            device_id=device_id, name="Loopback0"
-        )
+    primary_assignments = collect_ip_assignments_by_interface(
+        netbox_api, non_switch_devices, "Loopback0", "Primary"
+    )
 
-        for interface in loopback_interfaces:
-            # Get IP addresses assigned to this interface
-            ip_addresses = netbox_api.ipam.ip_addresses.filter(
-                assigned_object_id=interface.id
-            )
-
-            for ip_addr in ip_addresses:
-                if device.name not in device_assignments:
-                    device_assignments[device.name] = {"name": device.name}
-
-                # Check if this is an IPv4 or IPv6 address
-                if ":" not in ip_addr.address:  # Simple IPv4 check
-                    device_assignments[device.name]["primary_ip4"] = ip_addr.address
-                    logger.info(
-                        f"Found primary IPv4 assignment: {device.name} -> {ip_addr.address}"
-                    )
-                else:  # IPv6 address
-                    device_assignments[device.name]["primary_ip6"] = ip_addr.address
-                    logger.info(
-                        f"Found primary IPv6 assignment: {device.name} -> {ip_addr.address}"
-                    )
+    # Merge assignments
+    all_device_assignments = {}
+    for assignments_dict in [oob_assignments, primary_assignments]:
+        for device_name, assignment in assignments_dict.items():
+            if device_name not in all_device_assignments:
+                all_device_assignments[device_name] = assignment
+            else:
+                all_device_assignments[device_name].update(assignment)
 
     # Create consolidated device tasks from collected assignments
-    for device_assignment in device_assignments.values():
+    for device_assignment in all_device_assignments.values():
         tasks_by_type["device"].append({"device": device_assignment})
 
     total_tasks = sum(len(tasks) for tasks in tasks_by_type.values())
@@ -1819,28 +1942,12 @@ def purge_command(
                     # Show detailed list when verbose flag is used
                     if verbose:
                         for resource in resources:
-                            name_attr = getattr(
-                                resource,
-                                "name",
-                                getattr(
-                                    resource,
-                                    "address",
-                                    getattr(resource, "id", "unknown"),
-                                ),
-                            )
+                            name_attr = get_resource_name(resource)
                             logger.info(f"  Would delete {resource_name}: {name_attr}")
                     else:
                         # Show only first 5 items in non-verbose mode
                         for resource in resources[:5]:
-                            name_attr = getattr(
-                                resource,
-                                "name",
-                                getattr(
-                                    resource,
-                                    "address",
-                                    getattr(resource, "id", "unknown"),
-                                ),
-                            )
+                            name_attr = get_resource_name(resource)
                             logger.debug(f"  - {name_attr}")
                         if len(resources) > 5:
                             logger.debug(f"  ... and {len(resources) - 5} more")
@@ -1859,13 +1966,7 @@ def purge_command(
                             continue
 
                         # Get resource identifier for verbose output
-                        name_attr = getattr(
-                            resource,
-                            "name",
-                            getattr(
-                                resource, "address", getattr(resource, "id", "unknown")
-                            ),
-                        )
+                        name_attr = get_resource_name(resource)
 
                         if verbose:
                             logger.info(f"  Deleting {resource_name}: {name_attr}")
@@ -1873,13 +1974,7 @@ def purge_command(
                         resource.delete()
                         deleted_count += 1
                     except Exception as e:
-                        name_attr = getattr(
-                            resource,
-                            "name",
-                            getattr(
-                                resource, "address", getattr(resource, "id", "unknown")
-                            ),
-                        )
+                        name_attr = get_resource_name(resource)
                         error_msg = (
                             f"Failed to delete {resource_name} '{name_attr}': {e}"
                         )
