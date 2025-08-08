@@ -1894,6 +1894,7 @@ def purge_command(
             ("dcim.device_types", "device types"),
             ("dcim.module_types", "module types"),
             # Virtualization resources (clusters depend on cluster types)
+            ("virtualization.virtual_chassis", "virtual chassis"),
             ("virtualization.clusters", "clusters"),
             ("virtualization.cluster_types", "cluster types"),
             # Network resources
