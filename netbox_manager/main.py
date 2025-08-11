@@ -241,6 +241,19 @@ def load_global_vars() -> Dict[str, Any]:
                 if file_vars:
                     logger.debug(f"Loading vars from {os.path.basename(yaml_file)}")
                     global_vars = deep_merge(global_vars, file_vars)
+        except yaml.YAMLError as e:
+            # Extract line and column information if available
+            error_msg = f"Invalid YAML syntax in vars file '{yaml_file}'"
+            if hasattr(e, "problem_mark"):
+                mark = e.problem_mark
+                error_msg += f" at line {mark.line + 1}, column {mark.column + 1}"
+            if hasattr(e, "problem"):
+                error_msg += f": {e.problem}"
+            if hasattr(e, "context"):
+                error_msg += f" ({e.context})"
+            logger.error(error_msg)
+        except FileNotFoundError:
+            logger.error(f"Vars file not found: {yaml_file}")
         except Exception as e:
             logger.error(f"Error loading vars from {yaml_file}: {e}")
 
@@ -415,14 +428,74 @@ def handle_file(
     template_tasks = []
 
     logger.info(f"Handle file {file}")
-    with open(file) as fp:
-        data = yaml.safe_load(fp)
-        for rtask in data:
+    try:
+        with open(file) as fp:
+            data = yaml.safe_load(fp)
+    except yaml.YAMLError as e:
+        # Extract line and column information if available
+        error_msg = f"Invalid YAML syntax in file '{file}'"
+        if hasattr(e, "problem_mark"):
+            mark = e.problem_mark
+            error_msg += f" at line {mark.line + 1}, column {mark.column + 1}"
+        if hasattr(e, "problem"):
+            error_msg += f": {e.problem}"
+        if hasattr(e, "context"):
+            error_msg += f" ({e.context})"
+        logger.error(error_msg)
+        if fail_fast:
+            raise typer.Exit(1)
+        return
+    except FileNotFoundError:
+        logger.error(f"File not found: {file}")
+        if fail_fast:
+            raise typer.Exit(1)
+        return
+    except Exception as e:
+        logger.error(f"Error reading file '{file}': {e}")
+        if fail_fast:
+            raise typer.Exit(1)
+        return
+
+    # Check if data is None (empty file)
+    if data is None:
+        logger.warning(f"File '{file}' is empty or contains only comments")
+        return
+
+    # Check if data is a list (expected format)
+    if not isinstance(data, list):
+        logger.error(
+            f"Invalid YAML structure in file '{file}': Expected a list of tasks, got {type(data).__name__}"
+        )
+        if fail_fast:
+            raise typer.Exit(1)
+        return
+
+    try:
+        for idx, rtask in enumerate(data):
+            # Validate task structure
+            if not isinstance(rtask, dict):
+                logger.error(
+                    f"Invalid task structure in file '{file}' at index {idx}: Expected a dictionary, got {type(rtask).__name__}"
+                )
+                if fail_fast:
+                    raise typer.Exit(1)
+                continue
+
+            if not rtask:
+                logger.warning(f"Empty task in file '{file}' at index {idx}, skipping")
+                continue
+
             # Check if task has a register field
             register_var = rtask.pop("register", None)
 
             # Get the first remaining key-value pair (the actual task)
-            key, value = next(iter(rtask.items()))
+            try:
+                key, value = next(iter(rtask.items()))
+            except StopIteration:
+                logger.warning(
+                    f"Task in file '{file}' at index {idx} has no content after removing 'register' field, skipping"
+                )
+                continue
             if key == "vars":
                 # Merge local vars with global vars, local vars take precedence
                 template_vars = deep_merge(template_vars, value)
@@ -460,6 +533,11 @@ def handle_file(
 
                 task = create_netbox_task(key, value, register_var)
                 template_tasks.append(task)
+    except Exception as e:
+        logger.error(f"Error processing tasks in file '{file}': {e}")
+        if fail_fast:
+            raise typer.Exit(1)
+        return
 
     # Skip file if no tasks remain after filtering
     if not template_tasks:
