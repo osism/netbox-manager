@@ -1879,6 +1879,7 @@ def purge_command(
         deletion_order = [
             # Network connections and assignments (most dependent)
             ("ipam.ip_addresses", "IP addresses"),
+            ("ipam.fhrp_group_assignments", "FHRP group assignments"),
             ("dcim.cables", "cables"),
             ("dcim.mac_addresses", "MAC addresses"),
             # Device components
@@ -1898,6 +1899,7 @@ def purge_command(
             ("virtualization.clusters", "clusters"),
             ("virtualization.cluster_types", "cluster types"),
             # Network resources
+            ("ipam.fhrp_groups", "FHRP groups"),
             ("ipam.prefixes", "prefixes"),
             ("ipam.vlans", "VLANs"),
             ("ipam.vlan_groups", "VLAN groups"),
