@@ -1905,6 +1905,10 @@ def purge_command(
     verbose: Annotated[
         bool, typer.Option(help="Show detailed information about what is being deleted")
     ] = False,
+    parallel: Annotated[
+        Optional[int],
+        typer.Option(help="Delete up to n resources of same type in parallel"),
+    ] = 1,
 ) -> None:
     """Delete all managed resources from NetBox.
 
@@ -2047,12 +2051,14 @@ def purge_command(
 
                 # Delete resources
                 deleted_count = 0
-                for resource in resources:
-                    try:
-                        # Skip deletion of users and tokens
-                        if api_path in ["users.users", "users.tokens", "auth.tokens"]:
-                            continue
 
+                # Skip deletion of users and tokens
+                if api_path in ["users.users", "users.tokens", "auth.tokens"]:
+                    continue
+
+                # Function to delete a single resource
+                def delete_resource(resource):
+                    try:
                         # Get resource identifier for verbose output
                         name_attr = get_resource_name(resource)
 
@@ -2060,7 +2066,7 @@ def purge_command(
                             logger.info(f"  Deleting {resource_name}: {name_attr}")
 
                         resource.delete()
-                        deleted_count += 1
+                        return True, None
                     except Exception as e:
                         name_attr = get_resource_name(resource)
                         error_msg = (
@@ -2070,7 +2076,23 @@ def purge_command(
                             logger.warning(error_msg)
                         else:
                             logger.debug(error_msg)
-                        errors.append(f"{resource_name} '{name_attr}': {e}")
+                        return False, f"{resource_name} '{name_attr}': {e}"
+
+                # Use ThreadPoolExecutor for parallel deletion
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=parallel
+                ) as executor:
+                    futures = [
+                        executor.submit(delete_resource, resource)
+                        for resource in resources
+                    ]
+
+                    for future in concurrent.futures.as_completed(futures):
+                        success, error = future.result()
+                        if success:
+                            deleted_count += 1
+                        elif error:
+                            errors.append(error)
 
                 if deleted_count > 0:
                     logger.info(f"Deleted {deleted_count} {resource_name}")
