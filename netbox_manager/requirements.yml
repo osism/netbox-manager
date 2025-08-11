@@ -3,3 +3,4 @@ collections:
   - name: https://github.com/netbox-community/ansible_modules
     type: git
     version: devel
+  - name: community.general
