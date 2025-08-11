@@ -345,6 +345,7 @@ def handle_file(
     device_filters: Optional[List[str]] = None,
     fail_fast: bool = False,
     show_playbooks: bool = False,
+    verbose: bool = False,
 ) -> None:
     """Process a single YAML resource file and execute corresponding Ansible playbook."""
     # Load global vars first
@@ -417,11 +418,15 @@ def handle_file(
         if dryrun:
             logger.info(f"Skip the execution of {file} as only one dry run")
         else:
+            # Prepare verbosity parameters
+            verbosity = "vvv" if verbose else None
+
             result = ansible_runner.run(
                 playbook=temp_file.name,
                 private_data_dir=temp_dir,
                 inventory=inventory,
                 cancel_callback=lambda: None,
+                verbosity=verbosity,
             )
             if fail_fast and result.status == "failed":
                 logger.error(
@@ -548,6 +553,7 @@ def _run_main(
     filter_device: Optional[list[str]] = None,
     fail_fast: bool = False,
     show_playbooks: bool = False,
+    verbose: bool = False,
 ) -> None:
     start = time.time()
 
@@ -786,6 +792,7 @@ def _run_main(
                             filter_device,
                             fail_fast,
                             show_playbooks,
+                            verbose,
                         )
                         for file in group
                     ]
@@ -844,6 +851,12 @@ def run_command(
             help="Output generated playbooks to stdout without executing them",
         ),
     ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose", help="Run ansible-playbook with -vvv for detailed output"
+        ),
+    ] = False,
 ) -> None:
     """Process NetBox resources, device types, and module types."""
     _run_main(
@@ -862,6 +875,7 @@ def run_command(
         filter_device,
         fail_fast,
         show_playbooks,
+        verbose,
     )
 
 
