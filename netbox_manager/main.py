@@ -332,6 +332,7 @@ def handle_file(
     task_filter: Optional[str] = None,
     device_filters: Optional[List[str]] = None,
     fail_fast: bool = False,
+    show_playbooks: bool = False,
 ) -> None:
     """Process a single YAML resource file and execute corresponding Ansible playbook."""
     # Load global vars first
@@ -387,6 +388,13 @@ def handle_file(
         return
 
     playbook_resources = create_ansible_playbook(file, template_vars, template_tasks)
+
+    if show_playbooks:
+        # Output the playbook to stdout
+        print(f"# Playbook for {file}")
+        print(playbook_resources)
+        print()  # Add blank line between playbooks
+        return
 
     with tempfile.TemporaryDirectory() as temp_dir:
         with tempfile.NamedTemporaryFile(
@@ -527,6 +535,7 @@ def _run_main(
     include_ignored_files: bool = False,
     filter_device: Optional[list[str]] = None,
     fail_fast: bool = False,
+    show_playbooks: bool = False,
 ) -> None:
     start = time.time()
 
@@ -764,6 +773,7 @@ def _run_main(
                             filter_task,
                             filter_device,
                             fail_fast,
+                            show_playbooks,
                         )
                         for file in group
                     ]
@@ -815,6 +825,13 @@ def run_command(
     fail_fast: Annotated[
         bool, typer.Option("--fail-fast", help="Exit on first Ansible playbook failure")
     ] = False,
+    show_playbooks: Annotated[
+        bool,
+        typer.Option(
+            "--show-playbooks",
+            help="Output generated playbooks to stdout without executing them",
+        ),
+    ] = False,
 ) -> None:
     """Process NetBox resources, device types, and module types."""
     _run_main(
@@ -832,6 +849,7 @@ def run_command(
         include_ignored_files,
         filter_device,
         fail_fast,
+        show_playbooks,
     )
 
 
