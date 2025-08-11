@@ -292,6 +292,11 @@ def create_netbox_task(
     """Create a NetBox Ansible task from resource data."""
     state = value.pop("state", "present")
 
+    # Extract update_vc_child parameter for device_interface tasks
+    update_vc_child = None
+    if key == "device_interface" and "update_vc_child" in value:
+        update_vc_child = value.pop("update_vc_child")
+
     task = {
         "name": f"Manage NetBox resource {value.get('name', '')} of type {key}".replace(
             "  ", " "
@@ -304,6 +309,13 @@ def create_netbox_task(
             "validate_certs": not settings.IGNORE_SSL_ERRORS,
         },
     }
+
+    # Add update_vc_child at the same level as data for device_interface tasks
+    if update_vc_child is not None:
+        netbox_module_key = f"netbox.netbox.netbox_{key}"
+        netbox_module_config = task[netbox_module_key]
+        assert isinstance(netbox_module_config, dict)  # Type narrowing for mypy
+        netbox_module_config["update_vc_child"] = update_vc_child
 
     # Add register field if specified
     if register_var:
