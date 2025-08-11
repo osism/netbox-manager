@@ -427,6 +427,7 @@ def handle_file(
                 inventory=inventory,
                 cancel_callback=lambda: None,
                 verbosity=verbosity,
+                envvars={"ANSIBLE_STDOUT_CALLBACK": "community.general.yaml"},
             )
             if fail_fast and result.status == "failed":
                 logger.error(
@@ -650,6 +651,7 @@ def _run_main(
                 private_data_dir=temp_dir,
                 inventory=inventory,
                 cancel_callback=lambda: None,
+                envvars={"ANSIBLE_STDOUT_CALLBACK": "community.general.yaml"},
             )
             if (
                 "localhost" in ansible_result.stats["failures"]
