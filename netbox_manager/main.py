@@ -286,11 +286,13 @@ def should_skip_task_by_device_filter(
     )
 
 
-def create_netbox_task(key: str, value: Dict[str, Any]) -> Dict[str, Any]:
+def create_netbox_task(
+    key: str, value: Dict[str, Any], register_var: Optional[str] = None
+) -> Dict[str, Any]:
     """Create a NetBox Ansible task from resource data."""
     state = value.pop("state", "present")
 
-    return {
+    task = {
         "name": f"Manage NetBox resource {value.get('name', '')} of type {key}".replace(
             "  ", " "
         ),
@@ -302,6 +304,12 @@ def create_netbox_task(key: str, value: Dict[str, Any]) -> Dict[str, Any]:
             "validate_certs": not settings.IGNORE_SSL_ERRORS,
         },
     }
+
+    # Add register field if specified
+    if register_var:
+        task["register"] = register_var
+
+    return task
 
 
 def create_ansible_playbook(
@@ -334,12 +342,19 @@ def handle_file(
     with open(file) as fp:
         data = yaml.safe_load(fp)
         for rtask in data:
+            # Check if task has a register field
+            register_var = rtask.pop("register", None)
+
+            # Get the first remaining key-value pair (the actual task)
             key, value = next(iter(rtask.items()))
             if key == "vars":
                 # Merge local vars with global vars, local vars take precedence
                 template_vars = deep_merge(template_vars, value)
             elif key == "debug":
                 task = {"ansible.builtin.debug": value}
+                # Add register field if specified for debug tasks
+                if register_var:
+                    task["register"] = register_var
                 template_tasks.append(task)
             else:
                 # Apply task filter if specified
@@ -363,7 +378,7 @@ def handle_file(
                             )
                         continue
 
-                task = create_netbox_task(key, value)
+                task = create_netbox_task(key, value, register_var)
                 template_tasks.append(task)
 
     # Skip file if no tasks remain after filtering
