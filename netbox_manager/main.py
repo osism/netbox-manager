@@ -418,8 +418,8 @@ def handle_file(
         if dryrun:
             logger.info(f"Skip the execution of {file} as only one dry run")
         else:
-            # Prepare verbosity parameters
-            verbosity = "vvv" if verbose else None
+            # Prepare verbosity parameters - ansible-runner expects an integer
+            verbosity = 3 if verbose else None
 
             result = ansible_runner.run(
                 playbook=temp_file.name,
