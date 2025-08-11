@@ -324,6 +324,68 @@ def create_netbox_task(
     return task
 
 
+def create_uri_task(
+    value: Dict[str, Any], register_var: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create an ansible.builtin.uri task for direct NetBox API calls.
+
+    Args:
+        value: Dictionary containing 'body', 'method', and 'path' parameters
+        register_var: Optional variable name to register the result
+
+    Returns:
+        Dict containing the Ansible task configuration
+    """
+    # Extract parameters from value
+    body = value.get("body", {})
+    method = value.get("method", "GET")  # Default to GET if not specified
+    path = value.get("path", "")
+
+    # Ensure path doesn't start with /api/ as it will be added automatically
+    if path.startswith("/api/"):
+        path = path[5:]  # Remove /api/ prefix
+    elif path.startswith("api/"):
+        path = path[4:]  # Remove api/ prefix without leading slash
+
+    # Clean up the path - remove leading slashes to avoid double slashes
+    path = path.lstrip("/")
+
+    # Construct the full URL
+    netbox_url = settings.URL.rstrip("/")
+    full_url = f"{netbox_url}/api/{path}"
+
+    # Create the task
+    task = {
+        "name": f"NetBox API call: {method} {path}",
+        "ansible.builtin.uri": {
+            "url": full_url,
+            "method": method,
+            "headers": {
+                "Authorization": f"Token {settings.TOKEN}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            "body_format": "json",
+            "body": body if body else None,
+            "validate_certs": not settings.IGNORE_SSL_ERRORS,
+            "status_code": [200, 201, 204],
+        },
+    }
+
+    # Remove body if it's empty (for GET requests)
+    if not body:
+        uri_config = task["ansible.builtin.uri"]
+        assert isinstance(uri_config, dict)  # Type narrowing for mypy
+        del uri_config["body"]
+        del uri_config["body_format"]
+
+    # Add register field if specified
+    if register_var:
+        task["register"] = register_var
+
+    return task
+
+
 def create_ansible_playbook(
     file: str, template_vars: Dict[str, Any], template_tasks: List[Dict[str, Any]]
 ) -> str:
@@ -369,6 +431,10 @@ def handle_file(
                 # Add register field if specified for debug tasks
                 if register_var:
                     task["register"] = register_var
+                template_tasks.append(task)
+            elif key == "uri":
+                # Handle direct NetBox API calls via ansible.builtin.uri
+                task = create_uri_task(value, register_var)
                 template_tasks.append(task)
             else:
                 # Apply task filter if specified
