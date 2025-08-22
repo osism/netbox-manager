@@ -1542,47 +1542,63 @@ def _generate_cluster_loopback_tasks() -> Dict[str, List[Dict[str, Any]]]:
 
 
 def _generate_device_interface_labels() -> List[Dict[str, Any]]:
-    """Generate device interface label tasks based on switch custom fields."""
+    """Generate device interface label tasks based on switch, router, and firewall custom fields."""
     tasks = []
     netbox_api = create_netbox_api()
 
-    logger.info("Analyzing switch devices for device interface labeling...")
+    logger.info(
+        "Analyzing switch, router, and firewall devices for device interface labeling..."
+    )
 
-    # Get all devices and filter for switches with device_interface_label custom field
+    # Get all devices and filter for switches, routers, and firewalls with device_interface_label custom field
     all_devices = netbox_api.dcim.devices.all()
-    switches_with_labels = []
+    devices_with_labels = []
 
     for device in all_devices:
         device_role_slug = get_device_role_slug(device)
 
-        # Check if device is a switch with device_interface_label custom field
-        if device_role_slug in NETBOX_SWITCH_ROLES:
+        # Check if device is a switch, router, or firewall with device_interface_label custom field
+        if device_role_slug in NETBOX_SWITCH_ROLES or device_role_slug in [
+            "router",
+            "firewall",
+        ]:
             if hasattr(device, "custom_fields") and device.custom_fields:
                 device_interface_label = device.custom_fields.get(
                     "device_interface_label"
                 )
                 if device_interface_label:
-                    switches_with_labels.append((device, device_interface_label))
+                    devices_with_labels.append((device, device_interface_label))
+                    device_type_name = (
+                        "switch"
+                        if device_role_slug in NETBOX_SWITCH_ROLES
+                        else device_role_slug
+                    )
                     logger.debug(
-                        f"Found switch {device.name} with device_interface_label: {device_interface_label}"
+                        f"Found {device_type_name} {device.name} with device_interface_label: {device_interface_label}"
                     )
 
     logger.info(
-        f"Found {len(switches_with_labels)} switches with device_interface_label custom field"
+        f"Found {len(devices_with_labels)} devices (switches/routers/firewalls) with device_interface_label custom field"
     )
 
-    # Process each switch with device_interface_label
-    for switch_device, label_value in switches_with_labels:
+    # Process each device with device_interface_label
+    for source_device, label_value in devices_with_labels:
+        source_device_role = get_device_role_slug(source_device)
+        device_type_name = (
+            "switch"
+            if source_device_role in NETBOX_SWITCH_ROLES
+            else source_device_role
+        )
         logger.debug(
-            f"Processing switch {switch_device.name} with label '{label_value}'"
+            f"Processing {device_type_name} {source_device.name} with label '{label_value}'"
         )
 
-        # Get all interfaces for this switch
-        switch_interfaces = netbox_api.dcim.interfaces.filter(
-            device_id=switch_device.id
+        # Get all interfaces for this device
+        source_interfaces = netbox_api.dcim.interfaces.filter(
+            device_id=source_device.id
         )
 
-        for interface in switch_interfaces:
+        for interface in source_interfaces:
             # Check if interface has connected endpoints
             if not (
                 hasattr(interface, "connected_endpoints")
@@ -1614,7 +1630,7 @@ def _generate_device_interface_labels() -> List[Dict[str, Any]]:
                             }
                         )
                         logger.info(
-                            f"Will set label on {connected_device.name}:{interface_name} -> '{label_value}' (from switch {switch_device.name}:{interface.name})"
+                            f"Will set label on {connected_device.name}:{interface_name} -> '{label_value}' (from {device_type_name} {source_device.name}:{interface.name})"
                         )
                     else:
                         logger.warning(
