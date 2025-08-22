@@ -1609,6 +1609,7 @@ def _generate_device_interface_labels() -> List[Dict[str, Any]]:
                                     "device": connected_device.name,
                                     "name": interface_name,
                                     "label": label_value,
+                                    "tags": ["managed-by-osism"],
                                 }
                             }
                         )
