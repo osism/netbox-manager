@@ -1323,9 +1323,9 @@ def _get_cluster_segment_config_context(
             )
 
             # Log the specific loopback configuration found
-            if "_loopback_network_ipv4" in segment_context.data:
-                ipv4_net = segment_context.data.get("_loopback_network_ipv4")
-                ipv6_net = segment_context.data.get("_loopback_network_ipv6")
+            if "_segment_loopback_network_ipv4" in segment_context.data:
+                ipv4_net = segment_context.data.get("_segment_loopback_network_ipv4")
+                ipv6_net = segment_context.data.get("_segment_loopback_network_ipv6")
                 logger.debug(
                     f"Found loopback config in {segment_context.name}: IPv4={ipv4_net}, IPv6={ipv6_net}"
                 )
@@ -1458,13 +1458,15 @@ def _generate_cluster_loopback_tasks() -> Dict[str, List[Dict[str, Any]]]:
                 continue
 
             # Extract loopback network configuration
-            loopback_ipv4_network = config_context.get("_loopback_network_ipv4")
-            loopback_ipv6_network = config_context.get("_loopback_network_ipv6")
-            loopback_offset_ipv4 = config_context.get("_loopback_offset_ipv4", 0)
+            loopback_ipv4_network = config_context.get("_segment_loopback_network_ipv4")
+            loopback_ipv6_network = config_context.get("_segment_loopback_network_ipv6")
+            loopback_offset_ipv4 = config_context.get(
+                "_segment_loopback_offset_ipv4", 0
+            )
 
             if not loopback_ipv4_network:
                 logger.info(
-                    f"Cluster '{cluster.name}' has no _loopback_network_ipv4 in config context, skipping"
+                    f"Cluster '{cluster.name}' has no _segment_loopback_network_ipv4 in config context, skipping"
                 )
                 continue
 
