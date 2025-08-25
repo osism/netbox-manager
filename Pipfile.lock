@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "6ba99c67ac7b3f2f0f6334243ba6b2806f533788b53e64e243e3758113d821dd"
+            "sha256": "7d5da585e84b0993626cd1094de7a8eb9d83dcdc8bb7602fd6fec5675dbb6c80"
         },
         "pipfile-spec": 6,
         "requires": {},
@@ -16,12 +16,12 @@
     "default": {
         "ansible-core": {
             "hashes": [
-                "sha256:5914f1539f5da190bd9591112e20e339d699bda0c546992fc77c1e3ccc3928f2",
-                "sha256:ca4730837fdd50c8f8ab2fa17c04c448d74c5a27f3d5be7e602d9e3feb9430bc"
+                "sha256:affd33b38d32b57cfc2cd6daf3aafcb384297039e4c5600196a2ee9aa027b75d",
+                "sha256:ef42569dc9bb1641ef1adcc7e5bc6b4567b7383c7daf46d3a1885117c93a83e4"
             ],
             "index": "pypi",
             "markers": "python_version >= '3.11'",
-            "version": "==2.19.0"
+            "version": "==2.19.1"
         },
         "ansible-runner": {
             "hashes": [
@@ -580,11 +580,11 @@
         },
         "stevedore": {
             "hashes": [
-                "sha256:3135b5ae50fe12816ef291baff420acb727fcd356106e3e9cbfa9e5985cd6f4b",
-                "sha256:d10a31c7b86cba16c1f6e8d15416955fc797052351a56af15e608ad20811fcfe"
+                "sha256:18363d4d268181e8e8452e71a38cd77630f345b2ef6b4a8d5614dac5ee0d18cf",
+                "sha256:d31496a4f4df9825e1a1e4f1f74d19abb0154aff311c3b376fcc89dae8fccd73"
             ],
             "markers": "python_version >= '3.9'",
-            "version": "==5.4.1"
+            "version": "==5.5.0"
         },
         "sushy": {
             "hashes": [
@@ -606,11 +606,11 @@
         },
         "typing-extensions": {
             "hashes": [
-                "sha256:38b39f4aeeab64884ce9f74c94263ef78f3c22467c8724005483154c26648d36",
-                "sha256:d1e1e3b58374dc93031d6eda2420a48ea44a36c2b4766a4fdeb3710755731d76"
+                "sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466",
+                "sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548"
             ],
             "markers": "python_version >= '3.9'",
-            "version": "==4.14.1"
+            "version": "==4.15.0"
         },
         "urllib3": {
             "hashes": [
