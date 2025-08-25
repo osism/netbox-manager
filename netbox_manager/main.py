@@ -106,7 +106,7 @@ NETBOX_SWITCH_ROLES = [
 def validate_netbox_connection():
     """Validate NetBox connection settings."""
     settings.validators.register(
-        Validator("TOKEN", is_type_of=str),
+        Validator("TOKEN", is_type_of=(str, int)),
         Validator("URL", is_type_of=str),
     )
     try:
@@ -189,7 +189,7 @@ def find_yaml_files(directory: str) -> List[str]:
 
 def create_netbox_api() -> pynetbox.api:
     """Create and configure NetBox API connection."""
-    api = pynetbox.api(settings.URL, token=settings.TOKEN)
+    api = pynetbox.api(settings.URL, token=str(settings.TOKEN))
     if settings.IGNORE_SSL_ERRORS:
         api.http_session.verify = False
     return api
@@ -317,7 +317,7 @@ def create_netbox_task(
         f"netbox.netbox.netbox_{key}": {
             "data": value,
             "state": state,
-            "netbox_token": settings.TOKEN,
+            "netbox_token": str(settings.TOKEN),
             "netbox_url": settings.URL,
             "validate_certs": not settings.IGNORE_SSL_ERRORS,
         },
@@ -374,7 +374,7 @@ def create_uri_task(
             "url": full_url,
             "method": method,
             "headers": {
-                "Authorization": f"Token {settings.TOKEN}",
+                "Authorization": f"Token {str(settings.TOKEN)}",
                 "Accept": "application/json",
                 "Content-Type": "application/json",
             },
@@ -778,7 +778,7 @@ def _run_main(
       ansible.builtin.uri:
         url: "{settings.URL.rstrip('/')}/api/"
         headers:
-          Authorization: "Token {settings.TOKEN}"
+          Authorization: "Token {str(settings.TOKEN)}"
           Accept: application/json
         status_code: [200]
         validate_certs: {not settings.IGNORE_SSL_ERRORS}
@@ -2104,7 +2104,7 @@ def purge_command(
 
     try:
         # Initialize NetBox API connection
-        netbox_api = pynetbox.api(settings.URL, token=settings.TOKEN)
+        netbox_api = pynetbox.api(settings.URL, token=str(settings.TOKEN))
         if settings.IGNORE_SSL_ERRORS:
             netbox_api.http_session.verify = False
 
