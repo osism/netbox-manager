@@ -159,7 +159,7 @@ class NetBox:
             images=0,
         )
         self.url = settings.URL
-        self.token = settings.TOKEN
+        self.token = str(settings.TOKEN)
         self.handle = LogHandler(settings)
         self.netbox = None
         self.ignore_ssl = settings.IGNORE_SSL_ERRORS
