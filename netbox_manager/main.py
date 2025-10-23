@@ -1498,6 +1498,14 @@ def _generate_cluster_loopback_tasks() -> Dict[str, List[Dict[str, Any]]]:
 
             # Generate IP addresses for each device
             for device in devices:
+                # Check if device should have a Loopback0 interface
+                if not should_have_loopback_interface(device):
+                    logger.debug(
+                        f"Skipping cluster loopback IP generation for {device.name} "
+                        f"(does not meet Loopback0 interface criteria)"
+                    )
+                    continue
+
                 ipv4_addr, ipv6_addr = calculate_loopback_ips(
                     device, ipv4_network, ipv6_network, loopback_offset_ipv4
                 )
