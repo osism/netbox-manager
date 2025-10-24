@@ -1811,35 +1811,42 @@ def _generate_autoconf_tasks() -> Dict[str, List[Dict[str, Any]]]:
     netbox_api = create_netbox_api()
     logger.info("Analyzing NetBox data for automatic configuration...")
 
-    # Get all devices first and filter out switches
-    logger.info("Filtering out switch devices...")
+    # Get all devices and create two dictionaries:
+    # 1. all_devices_dict: for device IP assignments (includes switches)
+    # 2. non_switch_devices: for interface MAC assignments (excludes switches)
+    logger.info("Loading devices from NetBox...")
     all_devices = netbox_api.dcim.devices.all()
+    all_devices_dict = {}
     non_switch_devices = {}
 
     for device in all_devices:
         device_role_slug = get_device_role_slug(device)
+        all_devices_dict[device.id] = device
         if device_role_slug not in NETBOX_SWITCH_ROLES:
             non_switch_devices[device.id] = device
 
     logger.info(
-        f"Found {len(non_switch_devices)} non-switch devices out of {len(all_devices)} total devices"
+        f"Found {len(all_devices_dict)} total devices "
+        f"({len(non_switch_devices)} non-switch, {len(all_devices_dict) - len(non_switch_devices)} switches)"
     )
 
-    # 1. MAC address assignment for interfaces
+    # 1. MAC address assignment for interfaces (excludes switches)
+    logger.info("Collecting interface MAC assignments (excluding switches)...")
     interface_tasks = collect_interface_assignments(netbox_api, non_switch_devices)
     tasks_by_type["device_interface"].extend(interface_tasks)
 
     # 2. Consolidated device IP assignments (OOB, primary IPv4, primary IPv6)
-    logger.info("Checking for device IP assignments...")
+    # Note: Includes ALL devices (including switches)
+    logger.info("Checking for device IP assignments (including switches)...")
 
     # Collect OOB IP assignments from eth0 interfaces
     oob_assignments = collect_ip_assignments_by_interface(
-        netbox_api, non_switch_devices, "eth0", "OOB"
+        netbox_api, all_devices_dict, "eth0", "OOB"
     )
 
     # Collect primary IPv4 and IPv6 assignments from Loopback0 interfaces
     primary_assignments = collect_ip_assignments_by_interface(
-        netbox_api, non_switch_devices, "Loopback0", "Primary"
+        netbox_api, all_devices_dict, "Loopback0", "Primary"
     )
 
     # Merge assignments
