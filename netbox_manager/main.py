@@ -1832,9 +1832,9 @@ def _generate_autoconf_tasks() -> Dict[str, List[Dict[str, Any]]]:
         f"({len(non_switch_devices)} non-switch, {len(all_devices_dict) - len(non_switch_devices)} switches)"
     )
 
-    # 1. MAC address assignment for interfaces (excludes switches)
-    logger.info("Collecting interface MAC assignments (excluding switches)...")
-    interface_tasks = collect_interface_assignments(netbox_api, non_switch_devices)
+    # 1. MAC address assignment for interfaces (includes all devices)
+    logger.info("Collecting interface MAC assignments (including switches)...")
+    interface_tasks = collect_interface_assignments(netbox_api, all_devices_dict)
     tasks_by_type["device_interface"].extend(interface_tasks)
 
     # 2. Consolidated device IP assignments (OOB, primary IPv4, primary IPv6)
