@@ -1651,6 +1651,222 @@ def _generate_device_interface_labels() -> List[Dict[str, Any]]:
     return tasks
 
 
+def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
+    """Generate PortChannel configuration tasks for switch-to-switch connections.
+
+    A PortChannel is created when there are multiple cable connections between two switches.
+    The PortChannel name is derived from the lowest port number in the group.
+
+    Naming examples:
+    - Eth1/3/1, Eth1/4/1 -> PortChannel3
+    - Ethernet48, Ethernet49 -> PortChannel48
+
+    This function analyzes cable connections between switches and creates PortChannel
+    LAG interfaces when multiple cables connect the same two switches. It generates
+    tasks to:
+    1. Create the PortChannel LAG interface on each switch
+    2. Assign member interfaces to the LAG on each switch
+
+    Returns:
+        List[Dict[str, Any]]: List of device_interface tasks
+    """
+    tasks = []
+    netbox_api = create_netbox_api()
+
+    logger.info("Analyzing switch-to-switch connections for PortChannel generation...")
+
+    # Get all switch devices
+    all_devices = netbox_api.dcim.devices.all()
+    switch_devices = []
+
+    for device in all_devices:
+        device_role_slug = get_device_role_slug(device)
+        if device_role_slug in NETBOX_SWITCH_ROLES:
+            switch_devices.append(device)
+            logger.debug(f"Found switch: {device.name}")
+
+    logger.info(f"Found {len(switch_devices)} switch devices")
+
+    # Track connections between switches
+    # Key: tuple of (switch1_name, switch2_name) where switch1_name < switch2_name
+    # Value: list of tuples (switch1_interface, switch2_interface)
+    switch_connections: Dict[Tuple[str, str], List[Tuple[Any, Any]]] = {}
+
+    # Analyze connections for each switch
+    for switch in switch_devices:
+        interfaces = netbox_api.dcim.interfaces.filter(device_id=switch.id)
+
+        for interface in interfaces:
+            # Skip if no cable connection
+            if not (hasattr(interface, "cable") and interface.cable):
+                continue
+
+            # Skip if no connected endpoints
+            if not (
+                hasattr(interface, "connected_endpoints")
+                and interface.connected_endpoints
+            ):
+                continue
+
+            # Check each connected endpoint
+            for endpoint in interface.connected_endpoints:
+                if not (hasattr(endpoint, "device") and endpoint.device):
+                    continue
+
+                connected_device = endpoint.device
+                connected_role_slug = get_device_role_slug(connected_device)
+
+                # Only process switch-to-switch connections
+                if connected_role_slug not in NETBOX_SWITCH_ROLES:
+                    continue
+
+                # Create a normalized key for the switch pair (alphabetically sorted)
+                switch_pair = tuple(sorted([switch.name, connected_device.name]))
+
+                # Store the connection with proper direction
+                if switch.name == switch_pair[0]:
+                    connection = (interface, endpoint)
+                else:
+                    connection = (endpoint, interface)
+
+                if switch_pair not in switch_connections:
+                    switch_connections[switch_pair] = []
+
+                # Avoid duplicates by checking if this connection already exists
+                connection_exists = False
+                for existing_conn in switch_connections[switch_pair]:
+                    if (
+                        existing_conn[0].id == connection[0].id
+                        and existing_conn[1].id == connection[1].id
+                    ):
+                        connection_exists = True
+                        break
+
+                if not connection_exists:
+                    switch_connections[switch_pair].append(connection)
+                    logger.debug(
+                        f"Found connection: {switch.name}:{interface.name} <-> "
+                        f"{connected_device.name}:{endpoint.name}"
+                    )
+
+    # Process switch pairs with multiple connections
+    for switch_pair, connections in switch_connections.items():
+        if len(connections) < 2:
+            # Skip if only one connection between switches
+            continue
+
+        switch1_name, switch2_name = switch_pair
+        logger.info(
+            f"Processing {len(connections)} connections between "
+            f"{switch1_name} and {switch2_name}"
+        )
+
+        # Extract interface names and determine PortChannel number
+        switch1_interfaces = []
+        switch2_interfaces = []
+
+        for interface1, interface2 in connections:
+            switch1_interfaces.append(interface1.name)
+            switch2_interfaces.append(interface2.name)
+
+        # Determine PortChannel number from the lowest numbered interface
+        def extract_portchannel_number(interface_name: str) -> int:
+            """Extract PortChannel number from interface name.
+
+            Examples:
+            - 'Eth1/3/1' -> 3 (use second number)
+            - 'Ethernet48' -> 48 (use first/only number)
+            - 'GigabitEthernet1/0/1' -> 0 (use second number)
+            """
+            # Extract all numbers from the interface name
+            numbers = re.findall(r"\d+", interface_name)
+
+            if not numbers:
+                return 0
+
+            # If interface name contains slashes, use the second number (index 1)
+            # Examples: Eth1/3/1 -> 3, GigabitEthernet1/0/1 -> 0
+            if "/" in interface_name and len(numbers) >= 2:
+                return int(numbers[1])
+
+            # Otherwise use the first (and possibly only) number
+            # Examples: Ethernet48 -> 48, eth0 -> 0
+            return int(numbers[0])
+
+        # Get the lowest port number from switch1's interfaces
+        switch1_port_numbers = [
+            extract_portchannel_number(name) for name in switch1_interfaces
+        ]
+        portchannel_number = min(switch1_port_numbers) if switch1_port_numbers else 1
+        portchannel_name = f"PortChannel{portchannel_number}"
+
+        logger.info(
+            f"Creating {portchannel_name} for {len(connections)} connections "
+            f"between {switch1_name} and {switch2_name}"
+        )
+
+        # Task 1: Create PortChannel LAG interface on switch1
+        tasks.append(
+            {
+                "device_interface": {
+                    "device": switch1_name,
+                    "name": portchannel_name,
+                    "type": "lag",
+                    "tags": ["managed-by-osism"],
+                }
+            }
+        )
+        logger.info(f"Will create LAG interface: {switch1_name}:{portchannel_name}")
+
+        # Task 2: Assign member interfaces to LAG on switch1
+        for interface_name in switch1_interfaces:
+            tasks.append(
+                {
+                    "device_interface": {
+                        "device": switch1_name,
+                        "name": interface_name,
+                        "lag": portchannel_name,
+                        "tags": ["managed-by-osism"],
+                    }
+                }
+            )
+            logger.info(
+                f"Will assign member to LAG: {switch1_name}:{interface_name} -> {portchannel_name}"
+            )
+
+        # Task 3: Create PortChannel LAG interface on switch2
+        tasks.append(
+            {
+                "device_interface": {
+                    "device": switch2_name,
+                    "name": portchannel_name,
+                    "type": "lag",
+                    "tags": ["managed-by-osism"],
+                }
+            }
+        )
+        logger.info(f"Will create LAG interface: {switch2_name}:{portchannel_name}")
+
+        # Task 4: Assign member interfaces to LAG on switch2
+        for interface_name in switch2_interfaces:
+            tasks.append(
+                {
+                    "device_interface": {
+                        "device": switch2_name,
+                        "name": interface_name,
+                        "lag": portchannel_name,
+                        "tags": ["managed-by-osism"],
+                    }
+                }
+            )
+            logger.info(
+                f"Will assign member to LAG: {switch2_name}:{interface_name} -> {portchannel_name}"
+            )
+
+    logger.info(f"Generated {len(tasks)} PortChannel LAG interface tasks")
+    return tasks
+
+
 def _split_tasks_by_type(
     all_tasks: List[Dict[str, Any]]
 ) -> Dict[str, List[Dict[str, Any]]]:
@@ -1880,6 +2096,9 @@ def autoconf_command(
     cluster_loopback_output: Annotated[
         str, typer.Option(help="Cluster-based loopback IPs output file path")
     ] = "399-autoconf.yml",
+    portchannel_output: Annotated[
+        str, typer.Option(help="PortChannel LAG interfaces output file path")
+    ] = "999-autoconf-portchannel.yml",
     debug: Annotated[bool, typer.Option(help="Debug")] = False,
     dryrun: Annotated[
         bool, typer.Option(help="Dry run - show tasks but don't write file")
@@ -1897,11 +2116,12 @@ def autoconf_command(
     5. Assign OOB IP addresses from eth0 interfaces to devices
     6. Assign primary IPv4 addresses from Loopback0 interfaces to devices
     7. Assign primary IPv6 addresses from Loopback0 interfaces to devices
+    8. Create PortChannel LAG interfaces for multiple switch-to-switch connections
 
     The loopback interface tasks are written to 299-autoconf.yml, cluster-based
-    loopback IP tasks are written to 399-autoconf.yml, and other tasks (including
-    interface labels) are written to 999-autoconf.yml in the standard netbox-manager
-    resource format.
+    loopback IP tasks are written to 399-autoconf.yml, PortChannel tasks are written
+    to 999-autoconf-portchannel.yml, and other tasks (including interface labels) are
+    written to 999-autoconf.yml in the standard netbox-manager resource format.
     """
     # Initialize logger
     init_logger(debug)
@@ -1916,6 +2136,9 @@ def autoconf_command(
 
         # Generate cluster-based loopback IP tasks
         cluster_loopback_tasks = _generate_cluster_loopback_tasks()
+
+        # Generate PortChannel LAG interface tasks
+        portchannel_tasks_list = _generate_portchannel_tasks()
 
         # Generate device interface label tasks
         interface_label_tasks_list = _generate_device_interface_labels()
@@ -2005,6 +2228,15 @@ def autoconf_command(
                                 f"    {yaml.dump(task, default_flow_style=False).strip()}"
                             )
 
+            if portchannel_tasks_list:
+                logger.info(
+                    "Dry run - would generate the following PortChannel LAG interface tasks:"
+                )
+                for task in portchannel_tasks_list:
+                    logger.info(
+                        f"    {yaml.dump(task, default_flow_style=False).strip()}"
+                    )
+
             if any(tasks for tasks in other_tasks.values()):
                 logger.info(
                     "Dry run - would generate the following other autoconf tasks:"
@@ -2045,6 +2277,29 @@ def autoconf_command(
             files_written += _write_autoconf_files(
                 cluster_loopback_tasks, cluster_loopback_prefix, cluster_loopback_dir
             )
+
+        # Handle PortChannel tasks - write to single file
+        if portchannel_tasks_list:
+            portchannel_filepath = (
+                portchannel_output
+                if os.path.dirname(portchannel_output)
+                else os.path.join(settings.RESOURCES, portchannel_output)
+            )
+
+            # Ensure directory exists
+            portchannel_dir = os.path.dirname(portchannel_filepath)
+            if portchannel_dir:
+                os.makedirs(portchannel_dir, exist_ok=True)
+
+            with open(portchannel_filepath, "w") as f:
+                yaml.dump(
+                    portchannel_tasks_list, f, default_flow_style=False, sort_keys=False
+                )
+
+            logger.info(
+                f"Generated {len(portchannel_tasks_list)} PortChannel tasks in {portchannel_filepath}"
+            )
+            files_written += 1
 
         # Handle other autoconf tasks files (split by type)
         if any(tasks for tasks in other_tasks.values()):
