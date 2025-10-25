@@ -1733,9 +1733,11 @@ def collect_interface_assignments(
             # Check if interface has a MAC address that should be set as primary
             mac_to_assign = None
             if interface.mac_address:
-                mac_to_assign = interface.mac_address
+                # interface.mac_address is typically already a string
+                mac_to_assign = str(interface.mac_address)
             elif interface.mac_addresses and not interface.mac_address:
-                mac_to_assign = interface.mac_addresses[0]
+                # interface.mac_addresses contains Record objects with mac_address attribute
+                mac_to_assign = str(interface.mac_addresses[0].mac_address)
 
             if mac_to_assign:
                 tasks.append(
