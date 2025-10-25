@@ -1793,16 +1793,26 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
             # Examples: Ethernet48 -> 48, eth0 -> 0
             return int(numbers[0])
 
-        # Get the lowest port number from switch1's interfaces
+        # Get the lowest port number from each switch's interfaces separately
         switch1_port_numbers = [
             extract_portchannel_number(name) for name in switch1_interfaces
         ]
-        portchannel_number = min(switch1_port_numbers) if switch1_port_numbers else 1
-        portchannel_name = f"PortChannel{portchannel_number}"
+        switch1_portchannel_number = (
+            min(switch1_port_numbers) if switch1_port_numbers else 1
+        )
+        switch1_portchannel_name = f"PortChannel{switch1_portchannel_number}"
+
+        switch2_port_numbers = [
+            extract_portchannel_number(name) for name in switch2_interfaces
+        ]
+        switch2_portchannel_number = (
+            min(switch2_port_numbers) if switch2_port_numbers else 1
+        )
+        switch2_portchannel_name = f"PortChannel{switch2_portchannel_number}"
 
         logger.info(
-            f"Creating {portchannel_name} for {len(connections)} connections "
-            f"between {switch1_name} and {switch2_name}"
+            f"Creating {switch1_portchannel_name} on {switch1_name} and {switch2_portchannel_name} on {switch2_name} "
+            f"for {len(connections)} connections"
         )
 
         # Task 1: Create PortChannel LAG interface on switch1
@@ -1810,13 +1820,15 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
             {
                 "device_interface": {
                     "device": switch1_name,
-                    "name": portchannel_name,
+                    "name": switch1_portchannel_name,
                     "type": "lag",
                     "tags": ["managed-by-osism"],
                 }
             }
         )
-        logger.info(f"Will create LAG interface: {switch1_name}:{portchannel_name}")
+        logger.info(
+            f"Will create LAG interface: {switch1_name}:{switch1_portchannel_name}"
+        )
 
         # Task 2: Assign member interfaces to LAG on switch1
         for interface_name in switch1_interfaces:
@@ -1825,13 +1837,13 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
                     "device_interface": {
                         "device": switch1_name,
                         "name": interface_name,
-                        "lag": portchannel_name,
+                        "lag": switch1_portchannel_name,
                         "tags": ["managed-by-osism"],
                     }
                 }
             )
             logger.info(
-                f"Will assign member to LAG: {switch1_name}:{interface_name} -> {portchannel_name}"
+                f"Will assign member to LAG: {switch1_name}:{interface_name} -> {switch1_portchannel_name}"
             )
 
         # Task 3: Create PortChannel LAG interface on switch2
@@ -1839,13 +1851,15 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
             {
                 "device_interface": {
                     "device": switch2_name,
-                    "name": portchannel_name,
+                    "name": switch2_portchannel_name,
                     "type": "lag",
                     "tags": ["managed-by-osism"],
                 }
             }
         )
-        logger.info(f"Will create LAG interface: {switch2_name}:{portchannel_name}")
+        logger.info(
+            f"Will create LAG interface: {switch2_name}:{switch2_portchannel_name}"
+        )
 
         # Task 4: Assign member interfaces to LAG on switch2
         for interface_name in switch2_interfaces:
@@ -1854,13 +1868,13 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
                     "device_interface": {
                         "device": switch2_name,
                         "name": interface_name,
-                        "lag": portchannel_name,
+                        "lag": switch2_portchannel_name,
                         "tags": ["managed-by-osism"],
                     }
                 }
             )
             logger.info(
-                f"Will assign member to LAG: {switch2_name}:{interface_name} -> {portchannel_name}"
+                f"Will assign member to LAG: {switch2_name}:{interface_name} -> {switch2_portchannel_name}"
             )
 
     logger.info(f"Generated {len(tasks)} PortChannel LAG interface tasks")
