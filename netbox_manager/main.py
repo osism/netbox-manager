@@ -34,6 +34,22 @@ files_changed: list[str] = []
 
 warnings.filterwarnings("ignore")
 
+
+# Custom YAML Dumper for proper indentation of nested sequences
+class ProperIndentDumper(yaml.Dumper):
+    """Custom YAML Dumper that properly indents nested sequences.
+
+    This ensures nested lists (like tags:) are indented correctly
+    for yamllint validation. Without this, PyYAML's default behavior
+    makes nested sequences align at the same indentation level as
+    their parent key, which violates yamllint's indentation rules.
+    """
+
+    def increase_indent(self, flow=False, indentless=False):
+        """Override to prevent indentless sequences."""
+        return super(ProperIndentDumper, self).increase_indent(flow, False)
+
+
 settings = Dynaconf(
     envvar_prefix="NETBOX_MANAGER",
     settings_files=["settings.toml", ".secrets.toml"],
@@ -1940,7 +1956,12 @@ def _write_autoconf_files(
 
         with open(filepath, "w") as f:
             yaml.dump(
-                tasks, f, default_flow_style=False, sort_keys=False, explicit_start=True
+                tasks,
+                f,
+                Dumper=ProperIndentDumper,
+                default_flow_style=False,
+                sort_keys=False,
+                explicit_start=True,
             )
 
         logger.info(f"Generated {len(tasks)} {resource_type} tasks in {filepath}")
@@ -2337,6 +2358,7 @@ def autoconf_command(
                 yaml.dump(
                     portchannel_tasks_list,
                     f,
+                    Dumper=ProperIndentDumper,
                     default_flow_style=False,
                     sort_keys=False,
                     explicit_start=True,
