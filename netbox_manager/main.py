@@ -1670,7 +1670,10 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
     Returns:
         List[Dict[str, Any]]: List of device_interface tasks
     """
-    tasks = []
+    # Use two-phase approach: collect LAG creation tasks separately from member assignments
+    lag_creation_tasks = []
+    member_assignment_tasks = []
+
     netbox_api = create_netbox_api()
 
     logger.info("Analyzing switch-to-switch connections for PortChannel generation...")
@@ -1749,8 +1752,9 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
                         f"{connected_device.name}:{endpoint.name}"
                     )
 
-    # Process switch pairs with multiple connections
-    for switch_pair, connections in switch_connections.items():
+    # Process switch pairs with multiple connections in sorted order
+    for switch_pair in sorted(switch_connections.keys()):
+        connections = switch_connections[switch_pair]
         if len(connections) < 2:
             # Skip if only one connection between switches
             continue
@@ -1768,6 +1772,10 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
         for interface1, interface2 in connections:
             switch1_interfaces.append(interface1.name)
             switch2_interfaces.append(interface2.name)
+
+        # Sort interface names for stable ordering
+        switch1_interfaces.sort()
+        switch2_interfaces.sort()
 
         # Determine PortChannel number from the lowest numbered interface
         def extract_portchannel_number(interface_name: str) -> int:
@@ -1815,8 +1823,8 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
             f"for {len(connections)} connections"
         )
 
-        # Task 1: Create PortChannel LAG interface on switch1
-        tasks.append(
+        # Phase 1: Collect LAG creation tasks
+        lag_creation_tasks.append(
             {
                 "device_interface": {
                     "device": switch1_name,
@@ -1830,24 +1838,7 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
             f"Will create LAG interface: {switch1_name}:{switch1_portchannel_name}"
         )
 
-        # Task 2: Assign member interfaces to LAG on switch1
-        for interface_name in switch1_interfaces:
-            tasks.append(
-                {
-                    "device_interface": {
-                        "device": switch1_name,
-                        "name": interface_name,
-                        "lag": switch1_portchannel_name,
-                        "tags": ["managed-by-osism"],
-                    }
-                }
-            )
-            logger.info(
-                f"Will assign member to LAG: {switch1_name}:{interface_name} -> {switch1_portchannel_name}"
-            )
-
-        # Task 3: Create PortChannel LAG interface on switch2
-        tasks.append(
+        lag_creation_tasks.append(
             {
                 "device_interface": {
                     "device": switch2_name,
@@ -1861,9 +1852,24 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
             f"Will create LAG interface: {switch2_name}:{switch2_portchannel_name}"
         )
 
-        # Task 4: Assign member interfaces to LAG on switch2
+        # Phase 2: Collect member assignment tasks
+        for interface_name in switch1_interfaces:
+            member_assignment_tasks.append(
+                {
+                    "device_interface": {
+                        "device": switch1_name,
+                        "name": interface_name,
+                        "lag": switch1_portchannel_name,
+                        "tags": ["managed-by-osism"],
+                    }
+                }
+            )
+            logger.info(
+                f"Will assign member to LAG: {switch1_name}:{interface_name} -> {switch1_portchannel_name}"
+            )
+
         for interface_name in switch2_interfaces:
-            tasks.append(
+            member_assignment_tasks.append(
                 {
                     "device_interface": {
                         "device": switch2_name,
@@ -1876,6 +1882,17 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
             logger.info(
                 f"Will assign member to LAG: {switch2_name}:{interface_name} -> {switch2_portchannel_name}"
             )
+
+    # Sort each group by (device, name) for stable ordering
+    def sort_key(task):
+        iface = task["device_interface"]
+        return (iface["device"], iface["name"])
+
+    lag_creation_tasks.sort(key=sort_key)
+    member_assignment_tasks.sort(key=sort_key)
+
+    # Combine: LAG creations first, then member assignments
+    tasks = lag_creation_tasks + member_assignment_tasks
 
     logger.info(f"Generated {len(tasks)} PortChannel LAG interface tasks")
     return tasks
@@ -1953,7 +1970,11 @@ def collect_interface_assignments(
     tasks = []
     logger.info("Checking interfaces for MAC address assignments...")
 
-    for device_id, device in non_switch_devices.items():
+    # Sort devices by name for stable ordering
+    for device_id in sorted(
+        non_switch_devices.keys(), key=lambda d_id: non_switch_devices[d_id].name
+    ):
+        device = non_switch_devices[device_id]
         device_interfaces = netbox_api.dcim.interfaces.filter(device_id=device_id)
 
         for interface in device_interfaces:
@@ -1998,7 +2019,11 @@ def collect_ip_assignments_by_interface(
         f"Checking {interface_name} interfaces for {assignment_type} IP assignments..."
     )
 
-    for device_id, device in non_switch_devices.items():
+    # Sort devices by name for stable ordering
+    for device_id in sorted(
+        non_switch_devices.keys(), key=lambda d_id: non_switch_devices[d_id].name
+    ):
+        device = non_switch_devices[device_id]
         interfaces = netbox_api.dcim.interfaces.filter(
             device_id=device_id, name=interface_name
         )
@@ -2090,8 +2115,9 @@ def _generate_autoconf_tasks() -> Dict[str, List[Dict[str, Any]]]:
             else:
                 all_device_assignments[device_name].update(assignment)
 
-    # Create consolidated device tasks from collected assignments
-    for device_assignment in all_device_assignments.values():
+    # Create consolidated device tasks from collected assignments in sorted order
+    for device_name in sorted(all_device_assignments.keys()):
+        device_assignment = all_device_assignments[device_name]
         tasks_by_type["device"].append({"device": device_assignment})
 
     total_tasks = sum(len(tasks) for tasks in tasks_by_type.values())
