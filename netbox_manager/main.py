@@ -1939,7 +1939,9 @@ def _write_autoconf_files(
             filepath = filename
 
         with open(filepath, "w") as f:
-            yaml.dump(tasks, f, default_flow_style=False, sort_keys=False)
+            yaml.dump(
+                tasks, f, default_flow_style=False, sort_keys=False, explicit_start=True
+            )
 
         logger.info(f"Generated {len(tasks)} {resource_type} tasks in {filepath}")
         files_written += 1
@@ -2333,7 +2335,11 @@ def autoconf_command(
 
             with open(portchannel_filepath, "w") as f:
                 yaml.dump(
-                    portchannel_tasks_list, f, default_flow_style=False, sort_keys=False
+                    portchannel_tasks_list,
+                    f,
+                    default_flow_style=False,
+                    sort_keys=False,
+                    explicit_start=True,
                 )
 
             logger.info(
