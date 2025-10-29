@@ -316,7 +316,10 @@ def should_skip_task_by_device_filter(
 
 
 def create_netbox_task(
-    key: str, value: Dict[str, Any], register_var: Optional[str] = None
+    key: str,
+    value: Dict[str, Any],
+    register_var: Optional[str] = None,
+    ignore_errors: bool = False,
 ) -> Dict[str, Any]:
     """Create a NetBox Ansible task from resource data."""
     state = value.pop("state", "present")
@@ -326,7 +329,7 @@ def create_netbox_task(
     if key == "device_interface" and "update_vc_child" in value:
         update_vc_child = value.pop("update_vc_child")
 
-    task = {
+    task: Dict[str, Any] = {
         "name": f"Manage NetBox resource {value.get('name', '')} of type {key}".replace(
             "  ", " "
         ),
@@ -350,17 +353,24 @@ def create_netbox_task(
     if register_var:
         task["register"] = register_var
 
+    # Add ignore_errors if specified
+    if ignore_errors:
+        task["ignore_errors"] = True
+
     return task
 
 
 def create_uri_task(
-    value: Dict[str, Any], register_var: Optional[str] = None
+    value: Dict[str, Any],
+    register_var: Optional[str] = None,
+    ignore_errors: bool = False,
 ) -> Dict[str, Any]:
     """Create an ansible.builtin.uri task for direct NetBox API calls.
 
     Args:
         value: Dictionary containing 'body', 'method', and 'path' parameters
         register_var: Optional variable name to register the result
+        ignore_errors: Whether to continue execution even if this task fails
 
     Returns:
         Dict containing the Ansible task configuration
@@ -384,7 +394,7 @@ def create_uri_task(
     full_url = f"{netbox_url}/api/{path}"
 
     # Create the task
-    task = {
+    task: Dict[str, Any] = {
         "name": f"NetBox API call: {method} {path}",
         "ansible.builtin.uri": {
             "url": full_url,
@@ -412,6 +422,10 @@ def create_uri_task(
     if register_var:
         task["register"] = register_var
 
+    # Add ignore_errors if specified
+    if ignore_errors:
+        task["ignore_errors"] = True
+
     return task
 
 
@@ -437,6 +451,7 @@ def handle_file(
     fail_fast: bool = False,
     show_playbooks: bool = False,
     verbose: bool = False,
+    ignore_errors: bool = False,
 ) -> None:
     """Process a single YAML resource file and execute corresponding Ansible playbook."""
     # Load global vars first
@@ -520,10 +535,13 @@ def handle_file(
                 # Add register field if specified for debug tasks
                 if register_var:
                     task["register"] = register_var
+                # Add ignore_errors if specified
+                if ignore_errors:
+                    task["ignore_errors"] = True
                 template_tasks.append(task)
             elif key == "uri":
                 # Handle direct NetBox API calls via ansible.builtin.uri
-                task = create_uri_task(value, register_var)
+                task = create_uri_task(value, register_var, ignore_errors)
                 template_tasks.append(task)
             else:
                 # Apply task filter if specified
@@ -547,7 +565,7 @@ def handle_file(
                             )
                         continue
 
-                task = create_netbox_task(key, value, register_var)
+                task = create_netbox_task(key, value, register_var, ignore_errors)
                 template_tasks.append(task)
     except Exception as e:
         logger.error(f"Error processing tasks in file '{file}': {e}")
@@ -719,6 +737,7 @@ def _run_main(
     fail_fast: bool = False,
     show_playbooks: bool = False,
     verbose: bool = False,
+    ignore_errors: bool = False,
 ) -> None:
     start = time.time()
 
@@ -963,6 +982,7 @@ def _run_main(
                             fail_fast,
                             show_playbooks,
                             verbose,
+                            ignore_errors,
                         )
                         for file in group
                     ]
@@ -1027,6 +1047,10 @@ def run_command(
             "--verbose", help="Run ansible-playbook with -vvv for detailed output"
         ),
     ] = False,
+    ignore_errors: Annotated[
+        bool,
+        typer.Option("--ignore-errors", help="Continue execution even if tasks fail"),
+    ] = False,
 ) -> None:
     """Process NetBox resources, device types, and module types."""
     _run_main(
@@ -1046,6 +1070,7 @@ def run_command(
         fail_fast,
         show_playbooks,
         verbose,
+        ignore_errors,
     )
 
 
