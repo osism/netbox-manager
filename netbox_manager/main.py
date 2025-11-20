@@ -1644,6 +1644,15 @@ def _generate_device_interface_labels() -> List[Dict[str, Any]]:
             f"Processing {device_type_name} {source_device.name} with label '{label_value}'"
         )
 
+        # Check if source device has frr_local_pref custom field
+        frr_local_pref = None
+        if hasattr(source_device, "custom_fields") and source_device.custom_fields:
+            frr_local_pref = source_device.custom_fields.get("frr_local_pref")
+            if frr_local_pref:
+                logger.debug(
+                    f"{device_type_name} {source_device.name} has frr_local_pref: {frr_local_pref}"
+                )
+
         # Get all interfaces for this device
         source_interfaces = netbox_api.dcim.interfaces.filter(
             device_id=source_device.id
@@ -1670,19 +1679,30 @@ def _generate_device_interface_labels() -> List[Dict[str, Any]]:
                 if connected_role_slug in NETBOX_NODE_ROLES:
                     interface_name = getattr(endpoint, "name", None)
                     if interface_name:
-                        tasks.append(
-                            {
-                                "device_interface": {
-                                    "device": connected_device.name,
-                                    "name": interface_name,
-                                    "label": label_value,
-                                    "tags": ["managed-by-osism"],
-                                }
+                        # Build device_interface task
+                        interface_task = {
+                            "device": connected_device.name,
+                            "name": interface_name,
+                            "label": label_value,
+                            "tags": ["managed-by-osism"],
+                        }
+
+                        # Add custom_fields if frr_local_pref is set
+                        if frr_local_pref is not None:
+                            interface_task["custom_fields"] = {
+                                "frr_local_pref": frr_local_pref
                             }
-                        )
-                        logger.info(
-                            f"Will set label on {connected_device.name}:{interface_name} -> '{label_value}' (from {device_type_name} {source_device.name}:{interface.name})"
-                        )
+                            logger.info(
+                                f"Will set label on {connected_device.name}:{interface_name} -> '{label_value}' "
+                                f"with frr_local_pref={frr_local_pref} "
+                                f"(from {device_type_name} {source_device.name}:{interface.name})"
+                            )
+                        else:
+                            logger.info(
+                                f"Will set label on {connected_device.name}:{interface_name} -> '{label_value}' (from {device_type_name} {source_device.name}:{interface.name})"
+                            )
+
+                        tasks.append({"device_interface": interface_task})
                     else:
                         logger.warning(
                             f"Could not determine interface name for connection to {connected_device.name}"
