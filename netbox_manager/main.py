@@ -1112,10 +1112,44 @@ def export_archive(
     mount_point = "/tmp/netbox-export-mount"
 
     try:
+        # Create temporary file with git commit information
+        commit_info_file = None
+        try:
+            repo = git.Repo(".")
+            commit = repo.head.commit
+
+            # Create temporary file with commit information
+            with tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".txt"
+            ) as f:
+                commit_info_file = f.name
+                f.write("NetBox Manager Export - Git Commit Information\n")
+                f.write("=" * 50 + "\n\n")
+                f.write(f"Commit Hash:   {commit.hexsha}\n")
+                f.write(
+                    f"Commit Date:   {commit.committed_datetime.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
+                )
+                f.write(f"Branch:        {repo.active_branch.name}\n")
+
+            logger.info(f"Git commit info captured: {commit.hexsha[:8]}")
+        except git.exc.InvalidGitRepositoryError:
+            logger.warning("Not a git repository - skipping commit info in export")
+        except Exception as e:
+            logger.warning(f"Could not retrieve git commit info: {e}")
+
         with tarfile.open(output_file, "w:gz") as tar:
+            # Add git commit info file if it was created
+            if commit_info_file and os.path.exists(commit_info_file):
+                logger.info("Adding COMMIT_INFO.txt to archive")
+                tar.add(commit_info_file, arcname="COMMIT_INFO.txt")
+
             for directory in directories:
                 logger.info(f"Adding {directory} to archive")
                 tar.add(directory, arcname=os.path.basename(directory))
+
+        # Clean up temporary commit info file
+        if commit_info_file and os.path.exists(commit_info_file):
+            os.remove(commit_info_file)
 
         logger.info(f"Export completed: {output_file}")
 
