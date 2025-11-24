@@ -20,6 +20,8 @@ netbox-manager  # Process all resources
 netbox-manager --limit 300  # Process only files starting with 300
 netbox-manager --skipdtl  # Skip device type library
 netbox-manager export --output netbox-config.tar.gz  # Export configuration
+netbox-manager export-archive  # Export to netbox-export.tar.gz with git commit info
+netbox-manager export-archive --image  # Export to netbox-export.img (Linux only)
 
 # Linting and type checking
 flake8  # Uses .flake8 config (max line length: 200)
