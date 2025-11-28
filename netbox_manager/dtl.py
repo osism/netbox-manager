@@ -2,9 +2,9 @@
 
 # This code is based on the netbox-community/Device-Type-Library-Import project.
 
-from collections import Counter
-import os
 import glob
+import os
+from collections import Counter
 from re import sub as re_sub
 from sys import exit as system_exit
 from typing import Optional
@@ -15,7 +15,7 @@ import yaml
 
 
 class LogHandler:
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *_args, **_kwargs):
         return super().__new__(cls)
 
     def __init__(self, args):
@@ -43,8 +43,10 @@ class LogHandler:
         print(message)
 
     def log_device_ports_created(
-        self, created_ports: list = [], port_type: str = "port"
+        self, created_ports: Optional[list] = None, port_type: str = "port"
     ):
+        if created_ports is None:
+            created_ports = []
         for port in created_ports:
             self.verbose_log(
                 f"{port_type} Template Created: {port.name} - "
@@ -54,8 +56,10 @@ class LogHandler:
         return len(created_ports)
 
     def log_module_ports_created(
-        self, created_ports: list = [], port_type: str = "port"
+        self, created_ports: Optional[list] = None, port_type: str = "port"
     ):
+        if created_ports is None:
+            created_ports = []
         for port in created_ports:
             self.verbose_log(
                 f"{port_type} Template Created: {port.name} - "
@@ -66,7 +70,7 @@ class LogHandler:
 
 
 class Repo:
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *_args, **_kwargs):
         return super().__new__(cls)
 
     def __init__(self, base_path):
@@ -121,7 +125,7 @@ class Repo:
     def parse_files(self, files: list, slugs: Optional[list] = None):
         deviceTypes = []
         for file in files:
-            with open(file, "r") as stream:
+            with open(file) as stream:
                 try:
                     data = yaml.safe_load(stream)
                 except yaml.YAMLError:
@@ -146,7 +150,7 @@ class Repo:
 
 
 class NetBox:
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *_args, **_kwargs):
         return super().__new__(cls)
 
     def __init__(self, settings):
@@ -373,7 +377,7 @@ class NetBox:
 
 
 class DeviceTypes:
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *_args, **_kwargs):
         return super().__new__(cls)
 
     def __init__(self, netbox, handle, counter, ignore_ssl):
@@ -861,7 +865,7 @@ class DeviceTypes:
 
         files = {i: (os.path.basename(f), open(f, "rb")) for i, f in images.items()}
         response = requests.patch(
-            url, headers=headers, files=files, verify=(not self.ignore_ssl)
+            url, headers=headers, files=files, verify=(not self.ignore_ssl), timeout=60
         )
 
         self.handle.log(f"Images {images} updated at {url}: {response}")
