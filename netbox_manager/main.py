@@ -2,9 +2,7 @@
 
 import concurrent.futures
 import glob
-from importlib import metadata
 import ipaddress
-from itertools import groupby
 import os
 import platform
 import re
@@ -14,23 +12,50 @@ import sys
 import tarfile
 import tempfile
 import time
-from typing import Any, Optional, Tuple, Dict, List
-from typing_extensions import Annotated
 import warnings
+from copy import deepcopy
+from importlib import metadata
+from itertools import groupby
+from typing import Any, Dict, List, Optional, Tuple
 
 import ansible_runner
-from dynaconf import Dynaconf, Validator, ValidationError
 import git
-from jinja2 import Template
-from loguru import logger
 import pynetbox
 import typer
 import yaml
-from copy import deepcopy
+from dynaconf import Dynaconf, ValidationError, Validator
+from jinja2 import Template
+from loguru import logger
+from typing_extensions import Annotated
 
-from .dtl import Repo, NetBox
+from .dtl import NetBox, Repo
 
 files_changed: list[str] = []
+
+
+def safe_tar_extract(tar: tarfile.TarFile, path: str) -> None:
+    """Safely extract tar archive, preventing path traversal attacks.
+
+    For Python 3.12+, uses the built-in 'data' filter.
+    For older versions, manually validates each member.
+    """
+    if sys.version_info >= (3, 12):
+        tar.extractall(path, filter="data")
+    else:
+        # Manual safe extraction for Python < 3.12
+        for member in tar.getmembers():
+            # Check for absolute paths
+            if member.name.startswith("/"):
+                raise ValueError(f"Refusing to extract absolute path: {member.name}")
+            # Check for path traversal
+            if ".." in member.name:
+                raise ValueError(f"Refusing to extract path with '..': {member.name}")
+            # Check that resolved path is within target
+            member_path = os.path.join(path, member.name)
+            if not os.path.realpath(member_path).startswith(os.path.realpath(path)):
+                raise ValueError(f"Path traversal detected: {member.name}")
+        tar.extractall(path)
+
 
 warnings.filterwarnings("ignore")
 
@@ -45,9 +70,9 @@ class ProperIndentDumper(yaml.Dumper):
     their parent key, which violates yamllint's indentation rules.
     """
 
-    def increase_indent(self, flow=False, indentless=False):
+    def increase_indent(self, flow=False, _indentless=False):
         """Override to prevent indentless sequences."""
-        return super(ProperIndentDumper, self).increase_indent(flow, False)
+        return super().increase_indent(flow, False)
 
 
 settings = Dynaconf(
@@ -252,7 +277,7 @@ def load_global_vars() -> Dict[str, Any]:
 
     for yaml_file in yaml_files:
         try:
-            with open(yaml_file, "r", encoding="utf-8") as f:
+            with open(yaml_file, encoding="utf-8") as f:
                 file_vars = yaml.safe_load(f)
                 if file_vars:
                     logger.debug(f"Loading vars from {os.path.basename(yaml_file)}")
@@ -618,7 +643,7 @@ def handle_file(
                 raise typer.Exit(1)
 
 
-def signal_handler_sigint(sig: int, frame: Any) -> None:
+def signal_handler_sigint(_sig: int, _frame: Any) -> None:
     """Handle SIGINT signal gracefully."""
     print("SIGINT received. Exit.")
     raise typer.Exit()
@@ -1109,7 +1134,7 @@ def export_archive(
 
     output_file = "netbox-export.tar.gz"
     image_file = "netbox-export.img"
-    mount_point = "/tmp/netbox-export-mount"
+    mount_point = tempfile.mkdtemp(prefix="netbox-export-mount-")
 
     try:
         # Create temporary file with git commit information
@@ -1161,38 +1186,47 @@ def export_archive(
 
             # Create image file with specified size
             logger.info(f"Creating {image_size}MB ext4 image: {image_file}")
-            os.system(
-                f"dd if=/dev/zero of={image_file} bs=1M count={image_size} 2>/dev/null"
+            subprocess.run(
+                [
+                    "dd",
+                    "if=/dev/zero",
+                    f"of={image_file}",
+                    "bs=1M",
+                    f"count={image_size}",
+                ],
+                stderr=subprocess.DEVNULL,
+                check=True,
             )
 
             # Create ext4 filesystem
             logger.info("Creating ext4 filesystem")
-            os.system(f"mkfs.ext4 -q {image_file}")
+            subprocess.run(["mkfs.ext4", "-q", image_file], check=True)
 
-            # Create mount point
-            os.makedirs(mount_point, exist_ok=True)
-
-            # Mount the image
+            # Mount the image (mount_point already created by tempfile.mkdtemp)
             logger.info(f"Mounting image to {mount_point}")
-            mount_result = os.system(f"sudo mount -o loop {image_file} {mount_point}")
+            mount_result = subprocess.run(
+                ["sudo", "mount", "-o", "loop", image_file, mount_point]
+            )
 
-            if mount_result != 0:
+            if mount_result.returncode != 0:
                 logger.error("Failed to mount image (requires sudo)")
                 raise typer.Exit(1)
 
             try:
                 # Copy tarball to mounted image
                 logger.info("Copying tarball to image")
-                os.system(f"sudo cp {output_file} {mount_point}/")
+                subprocess.run(
+                    ["sudo", "cp", output_file, f"{mount_point}/"], check=True
+                )
 
                 # Sync and unmount
-                os.system("sync")
+                subprocess.run(["/bin/sync"], check=True)
                 logger.info("Unmounting image")
-                os.system(f"sudo umount {mount_point}")
+                subprocess.run(["sudo", "umount", mount_point], check=True)
 
             except Exception as e:
                 logger.error(f"Error during copy: {e}")
-                os.system(f"sudo umount {mount_point}")
+                subprocess.run(["sudo", "umount", mount_point])
                 raise
 
             # Clean up
@@ -1239,7 +1273,8 @@ def import_archive(
         try:
             logger.info(f"Extracting {input_file} to temporary directory")
             with tarfile.open(input_file, "r:gz") as tar:
-                tar.extractall(temp_dir)
+                # Use safe extraction to prevent path traversal attacks
+                safe_tar_extract(tar, temp_dir)
 
             # Process each extracted directory
             for item in os.listdir(temp_dir):
@@ -2638,27 +2673,27 @@ def purge_command(
                 if api_path in ["users.users", "users.tokens", "auth.tokens"]:
                     continue
 
-                # Function to delete a single resource
-                def delete_resource(resource):
+                # Function to delete a single resource (capture resource_name in default arg)
+                def delete_resource(resource, _resource_name=resource_name):
                     try:
                         # Get resource identifier for verbose output
                         name_attr = get_resource_name(resource)
 
                         if verbose:
-                            logger.info(f"  Deleting {resource_name}: {name_attr}")
+                            logger.info(f"  Deleting {_resource_name}: {name_attr}")
 
                         resource.delete()
                         return True, None
                     except Exception as e:
                         name_attr = get_resource_name(resource)
                         error_msg = (
-                            f"Failed to delete {resource_name} '{name_attr}': {e}"
+                            f"Failed to delete {_resource_name} '{name_attr}': {e}"
                         )
                         if verbose:
                             logger.warning(error_msg)
                         else:
                             logger.debug(error_msg)
-                        return False, f"{resource_name} '{name_attr}': {e}"
+                        return False, f"{_resource_name} '{name_attr}': {e}"
 
                 # Use ThreadPoolExecutor for parallel deletion
                 with concurrent.futures.ThreadPoolExecutor(
