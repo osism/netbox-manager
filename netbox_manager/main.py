@@ -1109,7 +1109,6 @@ def export_archive(
 
     output_file = "netbox-export.tar.gz"
     image_file = "netbox-export.img"
-    mount_point = "/tmp/netbox-export-mount"
 
     try:
         # Create temporary file with git commit information
@@ -1170,7 +1169,9 @@ def export_archive(
             subprocess.check_call(["mkfs.ext4", "-F", image_file])
 
             logger.info(f"Copying tarball {output_file} into image")
-            subprocess.check_call(["e2cp", output_file, f"{image_file}:/{os.path.basename(output_file)}"])
+            subprocess.check_call(
+                ["e2cp", output_file, f"{image_file}:/{os.path.basename(output_file)}"]
+            )
             os.remove(output_file)
 
             logger.info(
