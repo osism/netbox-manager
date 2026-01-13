@@ -1109,7 +1109,6 @@ def export_archive(
 
     output_file = "netbox-export.tar.gz"
     image_file = "netbox-export.img"
-    mount_point = "/tmp/netbox-export-mount"
 
     try:
         # Create temporary file with git commit information
@@ -1161,42 +1160,18 @@ def export_archive(
 
             # Create image file with specified size
             logger.info(f"Creating {image_size}MB ext4 image: {image_file}")
-            os.system(
-                f"dd if=/dev/zero of={image_file} bs=1M count={image_size} 2>/dev/null"
-            )
 
-            # Create ext4 filesystem
+            # Create empty image file
+            with open(image_file, "wb") as f:
+                f.truncate(image_size * 1024 * 1024)
+
             logger.info("Creating ext4 filesystem")
-            os.system(f"mkfs.ext4 -q {image_file}")
+            subprocess.check_call(["mkfs.ext4", "-F", image_file])
 
-            # Create mount point
-            os.makedirs(mount_point, exist_ok=True)
-
-            # Mount the image
-            logger.info(f"Mounting image to {mount_point}")
-            mount_result = os.system(f"sudo mount -o loop {image_file} {mount_point}")
-
-            if mount_result != 0:
-                logger.error("Failed to mount image (requires sudo)")
-                raise typer.Exit(1)
-
-            try:
-                # Copy tarball to mounted image
-                logger.info("Copying tarball to image")
-                os.system(f"sudo cp {output_file} {mount_point}/")
-
-                # Sync and unmount
-                os.system("sync")
-                logger.info("Unmounting image")
-                os.system(f"sudo umount {mount_point}")
-
-            except Exception as e:
-                logger.error(f"Error during copy: {e}")
-                os.system(f"sudo umount {mount_point}")
-                raise
-
-            # Clean up
-            os.rmdir(mount_point)
+            logger.info(f"Copying tarball {output_file} into image")
+            subprocess.check_call(
+                ["e2cp", output_file, f"{image_file}:/{os.path.basename(output_file)}"]
+            )
             os.remove(output_file)
 
             logger.info(
