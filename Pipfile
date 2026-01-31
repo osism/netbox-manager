@@ -18,4 +18,4 @@ typer = "==0.21.1"
 yamale = "==6.1.0"
 
 [dev-packages]
-python-gilt = "==2.2.4"
+python-gilt = "==2.2.5"
