@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "f5b9d42df8b4841808a05d3a2304dd58cb3b67b70f8530a77800389d5cbd2741"
+            "sha256": "8fbea06782f50e6d25800cb65a2a1c1f7505b69865ed25ef3850018d8113ceee"
         },
         "pipfile-spec": 6,
         "requires": {},
@@ -744,13 +744,13 @@
     "develop": {
         "python-gilt": {
             "hashes": [
-                "sha256:35428f3114a6f9fb8b023c25ee80a763d0d8aa6398289233db4a4295b38ff710",
-                "sha256:7aa922f82ec7745d38dc85bc69b9cce12aac4b3eab716b1674889f2b3c987ef4",
-                "sha256:d45daca2c44ae74ad77f5eca5894f096103003e2aaece80b852edd084d22b471",
-                "sha256:f080e2226b35c3c8f86f7b2710e0536d3b2a7cb9763863b5dced849b5de0354e"
+                "sha256:7fd92e09c5af92857ae68116528222aa04b797e8e04913c59ceb2ba4ff795e80",
+                "sha256:82b09d796010621afda0d7f7be2b17d7d109217c1ed596231847f60c138610ba",
+                "sha256:92e2beb0fc53a957c53d2415295c12d17bd1c803f24877257fe2cddcb14dd642",
+                "sha256:bb38f5a6ab0dfacd67075f20dc1dadd48d896757f2c79bde759242abf47215a7"
             ],
             "index": "pypi",
-            "version": "==2.2.4"
+            "version": "==2.2.5"
         }
     }
 }
