@@ -9,4 +9,5 @@ pynetbox==7.6.1
 setuptools==82.0.0
 sushy==5.9.0
 typer==0.21.2
+typing_extensions==4.15.0
 yamale==6.1.0
