@@ -7,3 +7,7 @@ TOKEN = ""
 URL = "https://XXX.netbox.regio.digital"
 VARS = "example/vars"
 VERBOSE = true
+
+# Autoconf role configuration (defaults to upstream OSISM roles if not set)
+# NODE_ROLES = ["compute", "storage", "resource", "control", "manager", "network", "metalbox", "dpu", "loadbalancer", "router", "firewall"]
+# SWITCH_ROLES = ["accessleaf", "borderleaf", "computeleaf", "dataleaf", "leaf", "serviceleaf", "spine", "storageleaf", "superspine", "switch", "transferleaf"]

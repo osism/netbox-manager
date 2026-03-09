@@ -88,8 +88,8 @@ settings.validators.register(
     ),
 )
 
-# Define device roles that should get Loopback0 interfaces
-NETBOX_NODE_ROLES = [
+# Default device roles that should get Loopback0 interfaces
+_DEFAULT_NODE_ROLES = [
     "compute",
     "storage",
     "resource",
@@ -103,8 +103,8 @@ NETBOX_NODE_ROLES = [
     "firewall",
 ]
 
-# Define switch roles that should also get Loopback0 interfaces
-NETBOX_SWITCH_ROLES = [
+# Default switch roles that should also get Loopback0 interfaces
+_DEFAULT_SWITCH_ROLES = [
     "accessleaf",
     "borderleaf",
     "computeleaf",
@@ -117,6 +117,16 @@ NETBOX_SWITCH_ROLES = [
     "switch",
     "transferleaf",
 ]
+
+
+def get_node_roles() -> List[str]:
+    """Get node roles from settings, falling back to defaults."""
+    return getattr(settings, "NODE_ROLES", None) or _DEFAULT_NODE_ROLES
+
+
+def get_switch_roles() -> List[str]:
+    """Get switch roles from settings, falling back to defaults."""
+    return getattr(settings, "SWITCH_ROLES", None) or _DEFAULT_SWITCH_ROLES
 
 
 def validate_netbox_connection():
@@ -1267,13 +1277,15 @@ def has_sonic_hwsku_parameter(device: Any) -> bool:
 def should_have_loopback_interface(device: Any) -> bool:
     """Determine if a device should have a Loopback0 interface."""
     device_role_slug = get_device_role_slug(device)
+    node_roles = get_node_roles()
+    switch_roles = get_switch_roles()
 
     # Node roles always get Loopback0 interfaces
-    if device_role_slug in NETBOX_NODE_ROLES:
+    if device_role_slug in node_roles:
         return True
 
     # Switch roles and switch device types only get Loopback0 if they have sonic_parameters.hwsku
-    is_switch_role = device_role_slug in NETBOX_SWITCH_ROLES
+    is_switch_role = device_role_slug in switch_roles
     is_switch_type = (
         device.device_type
         and hasattr(device.device_type, "model")
@@ -1613,12 +1625,13 @@ def _generate_device_interface_labels() -> List[Dict[str, Any]]:
     # Get all devices and filter for switches, routers, and firewalls with device_interface_label custom field
     all_devices = netbox_api.dcim.devices.all()
     devices_with_labels = []
+    switch_roles = get_switch_roles()
 
     for device in all_devices:
         device_role_slug = get_device_role_slug(device)
 
         # Check if device is a switch, router, or firewall with device_interface_label custom field
-        if device_role_slug in NETBOX_SWITCH_ROLES or device_role_slug in [
+        if device_role_slug in switch_roles or device_role_slug in [
             "router",
             "firewall",
         ]:
@@ -1630,7 +1643,7 @@ def _generate_device_interface_labels() -> List[Dict[str, Any]]:
                     devices_with_labels.append((device, device_interface_label))
                     device_type_name = (
                         "switch"
-                        if device_role_slug in NETBOX_SWITCH_ROLES
+                        if device_role_slug in switch_roles
                         else device_role_slug
                     )
                     logger.debug(
@@ -1645,9 +1658,7 @@ def _generate_device_interface_labels() -> List[Dict[str, Any]]:
     for source_device, label_value in devices_with_labels:
         source_device_role = get_device_role_slug(source_device)
         device_type_name = (
-            "switch"
-            if source_device_role in NETBOX_SWITCH_ROLES
-            else source_device_role
+            "switch" if source_device_role in switch_roles else source_device_role
         )
         logger.debug(
             f"Processing {device_type_name} {source_device.name} with label '{label_value}'"
@@ -1685,7 +1696,8 @@ def _generate_device_interface_labels() -> List[Dict[str, Any]]:
                 connected_role_slug = get_device_role_slug(connected_device)
 
                 # Check if connected device is a node
-                if connected_role_slug in NETBOX_NODE_ROLES:
+                node_roles = get_node_roles()
+                if connected_role_slug in node_roles:
                     interface_name = getattr(endpoint, "name", None)
                     if interface_name:
                         # Build device_interface task
@@ -1752,9 +1764,10 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
     all_devices = netbox_api.dcim.devices.all()
     switch_devices = []
 
+    switch_roles = get_switch_roles()
     for device in all_devices:
         device_role_slug = get_device_role_slug(device)
-        if device_role_slug in NETBOX_SWITCH_ROLES:
+        if device_role_slug in switch_roles:
             switch_devices.append(device)
             logger.debug(f"Found switch: {device.name}")
 
@@ -1790,7 +1803,7 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
                 connected_role_slug = get_device_role_slug(connected_device)
 
                 # Only process switch-to-switch connections
-                if connected_role_slug not in NETBOX_SWITCH_ROLES:
+                if connected_role_slug not in switch_roles:
                     continue
 
                 # Create a normalized key for the switch pair (alphabetically sorted)
@@ -2156,7 +2169,7 @@ def _generate_autoconf_tasks() -> Dict[str, List[Dict[str, Any]]]:
     for device in all_devices:
         device_role_slug = get_device_role_slug(device)
         all_devices_dict[device.id] = device
-        if device_role_slug not in NETBOX_SWITCH_ROLES:
+        if device_role_slug not in get_switch_roles():
             non_switch_devices[device.id] = device
 
     logger.info(
@@ -2202,20 +2215,266 @@ def _generate_autoconf_tasks() -> Dict[str, List[Dict[str, Any]]]:
     return tasks_by_type
 
 
+def detect_site_folders(resources_dir: str) -> Dict[str, str]:
+    """Detect numbered site subdirectories in the resources directory.
+
+    Scans for subdirectories matching numbered-name pattern (e.g. 200-aa, 300-ab, 1000-xx).
+
+    Returns:
+        Dict mapping folder_path -> folder_name (e.g. {"/path/200-aa": "200-aa"})
+    """
+    site_folders: Dict[str, str] = {}
+    if not os.path.isdir(resources_dir):
+        return site_folders
+
+    for entry in sorted(os.listdir(resources_dir)):
+        full_path = os.path.join(resources_dir, entry)
+        if os.path.isdir(full_path) and re.match(r"^\d+-.+", entry):
+            site_folders[full_path] = entry
+
+    return site_folders
+
+
+def extract_device_names_from_folder(folder_path: str) -> set:
+    """Parse all YAML files in a site folder and extract device names.
+
+    Looks for entries like ``- device: {name: X}`` in the resource files.
+
+    Returns:
+        set of device name strings found in the folder
+    """
+    device_names: set = set()
+    yaml_files = find_yaml_files(folder_path)
+
+    for yaml_file in yaml_files:
+        try:
+            with open(yaml_file, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            if not isinstance(data, list):
+                continue
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                # Look for device definitions: - device: {name: X}
+                if "device" in item and isinstance(item["device"], dict):
+                    name = item["device"].get("name")
+                    if name:
+                        device_names.add(name)
+        except Exception as e:
+            logger.debug(f"Error reading {yaml_file} for device names: {e}")
+
+    return device_names
+
+
+def get_autoconf_prefix(folder_name: str) -> str:
+    """Derive autoconf file prefix from site folder number.
+
+    Uses x99 in each site's hundred-range for all autoconf output.
+    E.g. '200-aa' -> '299-autoconf', '1000-xx' -> '1099-autoconf'.
+    """
+    leading = folder_name.split("-")[0]
+    base = int(leading)
+    hundred_base = (base // 100) * 100
+    return f"{hundred_base + 99}-autoconf"
+
+
+def _extract_device_names_from_autoconf_task(task: Dict[str, Any]) -> List[str]:
+    """Extract device names from an autoconf task.
+
+    Handles both direct references (``"device": "node-0"``) found by
+    ``find_device_names_in_structure`` and device-definition tasks like
+    ``{"device": {"name": "node-0", ...}}``.
+    """
+    names = find_device_names_in_structure(task)
+    # Also check for device-definition tasks: {"device": {"name": ...}}
+    for key, value in task.items():
+        if key == "device" and isinstance(value, dict) and "name" in value:
+            names.append(value["name"])
+    return names
+
+
+def _filter_tasks_by_device(
+    tasks: List[Dict[str, Any]], device_filter: set
+) -> List[Dict[str, Any]]:
+    """Filter a list of tasks, keeping only those referencing devices in device_filter."""
+    filtered = []
+    for task in tasks:
+        names = _extract_device_names_from_autoconf_task(task)
+        if any(name in device_filter for name in names):
+            filtered.append(task)
+    return filtered
+
+
+def _filter_tasks_by_type_by_device(
+    tasks_by_type: Dict[str, List[Dict[str, Any]]], device_filter: set
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Filter a tasks_by_type dict, keeping only tasks referencing devices in device_filter."""
+    filtered: Dict[str, List[Dict[str, Any]]] = {}
+    for resource_type, tasks in tasks_by_type.items():
+        filtered[resource_type] = _filter_tasks_by_device(tasks, device_filter)
+    return filtered
+
+
+def _filter_portchannel_tasks_by_device(
+    tasks: List[Dict[str, Any]], device_filter: set
+) -> List[Dict[str, Any]]:
+    """Filter portchannel tasks, keeping a pair if either device matches."""
+    filtered = []
+    for task in tasks:
+        names = _extract_device_names_from_autoconf_task(task)
+        if any(name in device_filter for name in names):
+            filtered.append(task)
+    return filtered
+
+
+def _run_autoconf_for_devices(
+    device_filter: Optional[set],
+    output_dir: str,
+    prefix: str = "999-autoconf",
+    dryrun: bool = False,
+) -> int:
+    """Run autoconf generation, optionally filtered to a set of device names.
+
+    Returns the number of files written.
+    """
+    # Generate all tasks (unfiltered from NetBox)
+    loopback_tasks_list = _generate_loopback_interfaces()
+    loopback_tasks = _split_tasks_by_type(loopback_tasks_list)
+
+    cluster_loopback_tasks = _generate_cluster_loopback_tasks()
+
+    portchannel_tasks_list = _generate_portchannel_tasks()
+
+    interface_label_tasks_list = _generate_device_interface_labels()
+    interface_label_tasks = _split_tasks_by_type(interface_label_tasks_list)
+
+    other_autoconf_tasks = _generate_autoconf_tasks()
+
+    # Merge interface label tasks with other autoconf tasks
+    merged_tasks: dict[str, list[dict]] = {}
+    interface_task_map = {}
+
+    for task in interface_label_tasks.get("device_interface", []):
+        if "device_interface" in task:
+            device_name = task["device_interface"]["device"]
+            interface_name = task["device_interface"]["name"]
+            key = f"{device_name}:{interface_name}"
+            interface_task_map[key] = task["device_interface"]
+
+    for resource_type in ["device", "device_interface", "ip_address"]:
+        merged_tasks[resource_type] = []
+
+    for task in other_autoconf_tasks.get("device_interface", []):
+        if "device_interface" in task:
+            device_name = task["device_interface"]["device"]
+            interface_name = task["device_interface"]["name"]
+            key = f"{device_name}:{interface_name}"
+
+            if key in interface_task_map:
+                merged_interface = {
+                    **task["device_interface"],
+                    **interface_task_map[key],
+                }
+                merged_tasks["device_interface"].append(
+                    {"device_interface": merged_interface}
+                )
+                del interface_task_map[key]
+            else:
+                merged_tasks["device_interface"].append(task)
+        else:
+            merged_tasks["device_interface"].append(task)
+
+    for interface_data in interface_task_map.values():
+        merged_tasks["device_interface"].append({"device_interface": interface_data})
+
+    for resource_type in ["device", "ip_address"]:
+        merged_tasks[resource_type].extend(other_autoconf_tasks.get(resource_type, []))
+
+    other_tasks = merged_tasks
+
+    # Apply device filter if provided
+    if device_filter is not None:
+        loopback_tasks = _filter_tasks_by_type_by_device(loopback_tasks, device_filter)
+        cluster_loopback_tasks = _filter_tasks_by_type_by_device(
+            cluster_loopback_tasks, device_filter
+        )
+        portchannel_tasks_list = _filter_portchannel_tasks_by_device(
+            portchannel_tasks_list, device_filter
+        )
+        other_tasks = _filter_tasks_by_type_by_device(other_tasks, device_filter)
+
+    if dryrun:
+        if any(tasks for tasks in loopback_tasks.values()):
+            logger.info(
+                f"Dry run ({output_dir}) - would generate the following loopback interface tasks:"
+            )
+            for resource_type, tasks in loopback_tasks.items():
+                if tasks:
+                    logger.info(f"  {resource_type}:")
+                    for task in tasks:
+                        logger.info(
+                            f"    {yaml.dump(task, default_flow_style=False).strip()}"
+                        )
+
+        if any(tasks for tasks in cluster_loopback_tasks.values()):
+            logger.info(
+                f"Dry run ({output_dir}) - would generate the following cluster-based loopback IP tasks:"
+            )
+            for resource_type, tasks in cluster_loopback_tasks.items():
+                if tasks:
+                    logger.info(f"  {resource_type}:")
+                    for task in tasks:
+                        logger.info(
+                            f"    {yaml.dump(task, default_flow_style=False).strip()}"
+                        )
+
+        if portchannel_tasks_list:
+            logger.info(
+                f"Dry run ({output_dir}) - would generate the following PortChannel LAG interface tasks:"
+            )
+            for task in portchannel_tasks_list:
+                logger.info(f"    {yaml.dump(task, default_flow_style=False).strip()}")
+
+        if any(tasks for tasks in other_tasks.values()):
+            logger.info(
+                f"Dry run ({output_dir}) - would generate the following other autoconf tasks:"
+            )
+            for resource_type, tasks in other_tasks.items():
+                if tasks:
+                    logger.info(f"  {resource_type}:")
+                    for task in tasks:
+                        logger.info(
+                            f"    {yaml.dump(task, default_flow_style=False).strip()}"
+                        )
+        return 0
+
+    # Merge all tasks into a single tasks_by_type dict
+    all_tasks_by_type: Dict[str, List[Dict[str, Any]]] = {}
+    for source in [loopback_tasks, cluster_loopback_tasks, other_tasks]:
+        for resource_type, tasks in source.items():
+            if resource_type not in all_tasks_by_type:
+                all_tasks_by_type[resource_type] = []
+            all_tasks_by_type[resource_type].extend(tasks)
+
+    # Add portchannel tasks as device_interface
+    if portchannel_tasks_list:
+        if "device_interface" not in all_tasks_by_type:
+            all_tasks_by_type["device_interface"] = []
+        all_tasks_by_type["device_interface"].extend(portchannel_tasks_list)
+
+    if not any(tasks for tasks in all_tasks_by_type.values()):
+        return 0
+
+    return _write_autoconf_files(all_tasks_by_type, prefix, output_dir)
+
+
 @app.command(
     name="autoconf", help="Generate automatic configuration based on NetBox data"
 )
 def autoconf_command(
-    output: Annotated[str, typer.Option(help="Output file path")] = "999-autoconf.yml",
-    loopback_output: Annotated[
-        str, typer.Option(help="Loopback interfaces output file path")
-    ] = "299-autoconf.yml",
-    cluster_loopback_output: Annotated[
-        str, typer.Option(help="Cluster-based loopback IPs output file path")
-    ] = "399-autoconf.yml",
-    portchannel_output: Annotated[
-        str, typer.Option(help="PortChannel LAG interfaces output file path")
-    ] = "999-autoconf-portchannel.yml",
+    output: Annotated[
+        str, typer.Option(help="Output file prefix (flat mode only)")
+    ] = "999-autoconf",
     debug: Annotated[bool, typer.Option(help="Debug")] = False,
     dryrun: Annotated[
         bool, typer.Option(help="Dry run - show tasks but don't write file")
@@ -2235,10 +2494,13 @@ def autoconf_command(
     7. Assign primary IPv6 addresses from Loopback0 interfaces to devices
     8. Create PortChannel LAG interfaces for multiple switch-to-switch connections
 
-    The loopback interface tasks are written to 299-autoconf.yml, cluster-based
-    loopback IP tasks are written to 399-autoconf.yml, PortChannel tasks are written
-    to 999-autoconf-portchannel.yml, and other tasks (including interface labels) are
-    written to 999-autoconf.yml in the standard netbox-manager resource format.
+    All tasks are written under a single prefix (x99-autoconf) split by resource
+    type (device, device-interface, ip-address).
+
+    When the resources directory contains numbered site folders (e.g. 200-aa/,
+    300-ab/), autoconf output is generated per-site inside each folder using
+    the x99 prefix (e.g. 299-autoconf, 399-autoconf). Otherwise, flat-file
+    output is used with the --output prefix.
     """
     # Initialize logger
     init_logger(debug)
@@ -2247,194 +2509,71 @@ def autoconf_command(
     validate_netbox_connection()
 
     try:
-        # Generate loopback interface tasks
-        loopback_tasks_list = _generate_loopback_interfaces()
-        loopback_tasks = _split_tasks_by_type(loopback_tasks_list)
+        resources_dir = settings.RESOURCES
+        site_folders = detect_site_folders(resources_dir) if resources_dir else {}
 
-        # Generate cluster-based loopback IP tasks
-        cluster_loopback_tasks = _generate_cluster_loopback_tasks()
+        if not site_folders:
+            # Backward compatible: flat output using CLI option
+            flat_prefix = os.path.splitext(os.path.basename(output))[0]
+            flat_dir = (
+                os.path.dirname(output) if os.path.dirname(output) else resources_dir
+            ) or "."
 
-        # Generate PortChannel LAG interface tasks
-        portchannel_tasks_list = _generate_portchannel_tasks()
-
-        # Generate device interface label tasks
-        interface_label_tasks_list = _generate_device_interface_labels()
-        interface_label_tasks = _split_tasks_by_type(interface_label_tasks_list)
-
-        # Generate other autoconf tasks
-        other_autoconf_tasks = _generate_autoconf_tasks()
-
-        # Merge interface label tasks with other autoconf tasks
-        # We need to merge device_interface tasks to avoid duplicates
-        merged_tasks: dict[str, list[dict]] = {}
-        interface_task_map = {}
-
-        # First, collect all interface label tasks by device:interface key
-        for task in interface_label_tasks.get("device_interface", []):
-            if "device_interface" in task:
-                device_name = task["device_interface"]["device"]
-                interface_name = task["device_interface"]["name"]
-                key = f"{device_name}:{interface_name}"
-                interface_task_map[key] = task["device_interface"]
-
-        # Initialize merged_tasks with all resource types
-        for resource_type in ["device", "device_interface", "ip_address"]:
-            merged_tasks[resource_type] = []
-
-        # Merge device_interface tasks from other_autoconf_tasks
-        for task in other_autoconf_tasks.get("device_interface", []):
-            if "device_interface" in task:
-                device_name = task["device_interface"]["device"]
-                interface_name = task["device_interface"]["name"]
-                key = f"{device_name}:{interface_name}"
-
-                if key in interface_task_map:
-                    # Merge the tasks - combine all fields
-                    merged_interface = {
-                        **task["device_interface"],
-                        **interface_task_map[key],
-                    }
-                    merged_tasks["device_interface"].append(
-                        {"device_interface": merged_interface}
-                    )
-                    # Remove from interface_task_map so we don't add it twice
-                    del interface_task_map[key]
-                else:
-                    merged_tasks["device_interface"].append(task)
-            else:
-                # This shouldn't happen but handle it gracefully
-                merged_tasks["device_interface"].append(task)
-
-        # Add any remaining interface label tasks that weren't merged
-        for interface_data in interface_task_map.values():
-            merged_tasks["device_interface"].append(
-                {"device_interface": interface_data}
+            files_written = _run_autoconf_for_devices(
+                device_filter=None,
+                output_dir=flat_dir,
+                prefix=flat_prefix,
+                dryrun=dryrun,
             )
 
-        # Add other resource types from other_autoconf_tasks
-        for resource_type in ["device", "ip_address"]:
-            merged_tasks[resource_type].extend(
-                other_autoconf_tasks.get(resource_type, [])
-            )
-
-        # Replace other_tasks with merged tasks
-        other_tasks = merged_tasks
-
-        if dryrun:
-            if any(tasks for tasks in loopback_tasks.values()):
-                logger.info(
-                    "Dry run - would generate the following loopback interface tasks:"
-                )
-                for resource_type, tasks in loopback_tasks.items():
-                    if tasks:
-                        logger.info(f"  {resource_type}:")
-                        for task in tasks:
-                            logger.info(
-                                f"    {yaml.dump(task, default_flow_style=False).strip()}"
-                            )
-
-            if any(tasks for tasks in cluster_loopback_tasks.values()):
-                logger.info(
-                    "Dry run - would generate the following cluster-based loopback IP tasks:"
-                )
-                for resource_type, tasks in cluster_loopback_tasks.items():
-                    if tasks:
-                        logger.info(f"  {resource_type}:")
-                        for task in tasks:
-                            logger.info(
-                                f"    {yaml.dump(task, default_flow_style=False).strip()}"
-                            )
-
-            if portchannel_tasks_list:
-                logger.info(
-                    "Dry run - would generate the following PortChannel LAG interface tasks:"
-                )
-                for task in portchannel_tasks_list:
-                    logger.info(
-                        f"    {yaml.dump(task, default_flow_style=False).strip()}"
-                    )
-
-            if any(tasks for tasks in other_tasks.values()):
-                logger.info(
-                    "Dry run - would generate the following other autoconf tasks:"
-                )
-                for resource_type, tasks in other_tasks.items():
-                    if tasks:
-                        logger.info(f"  {resource_type}:")
-                        for task in tasks:
-                            logger.info(
-                                f"    {yaml.dump(task, default_flow_style=False).strip()}"
-                            )
-            return
-
-        files_written = 0
-
-        # Handle loopback interfaces files (split by type)
-        if any(tasks for tasks in loopback_tasks.values()):
-            loopback_prefix = os.path.splitext(os.path.basename(loopback_output))[0]
-            loopback_dir = (
-                os.path.dirname(loopback_output)
-                if os.path.dirname(loopback_output)
-                else settings.RESOURCES
-            )
-            files_written += _write_autoconf_files(
-                loopback_tasks, loopback_prefix, loopback_dir
-            )
-
-        # Handle cluster-based loopback IP tasks files (split by type)
-        if any(tasks for tasks in cluster_loopback_tasks.values()):
-            cluster_loopback_prefix = os.path.splitext(
-                os.path.basename(cluster_loopback_output)
-            )[0]
-            cluster_loopback_dir = (
-                os.path.dirname(cluster_loopback_output)
-                if os.path.dirname(cluster_loopback_output)
-                else settings.RESOURCES
-            )
-            files_written += _write_autoconf_files(
-                cluster_loopback_tasks, cluster_loopback_prefix, cluster_loopback_dir
-            )
-
-        # Handle PortChannel tasks - write to single file
-        if portchannel_tasks_list:
-            portchannel_filepath = (
-                portchannel_output
-                if os.path.dirname(portchannel_output)
-                else os.path.join(settings.RESOURCES, portchannel_output)
-            )
-
-            # Ensure directory exists
-            portchannel_dir = os.path.dirname(portchannel_filepath)
-            if portchannel_dir:
-                os.makedirs(portchannel_dir, exist_ok=True)
-
-            with open(portchannel_filepath, "w") as f:
-                yaml.dump(
-                    portchannel_tasks_list,
-                    f,
-                    Dumper=ProperIndentDumper,
-                    default_flow_style=False,
-                    sort_keys=False,
-                    explicit_start=True,
-                )
-
+            if not dryrun and files_written == 0:
+                logger.info("No automatic configuration tasks found")
+        else:
             logger.info(
-                f"Generated {len(portchannel_tasks_list)} PortChannel tasks in {portchannel_filepath}"
+                f"Detected {len(site_folders)} site folder(s) in {resources_dir}"
             )
-            files_written += 1
 
-        # Handle other autoconf tasks files (split by type)
-        if any(tasks for tasks in other_tasks.values()):
-            other_prefix = os.path.splitext(os.path.basename(output))[0]
-            other_dir = (
-                os.path.dirname(output)
-                if os.path.dirname(output)
-                else settings.RESOURCES
-            )
-            files_written += _write_autoconf_files(other_tasks, other_prefix, other_dir)
+            # Check for duplicate device names across folders
+            all_seen_devices: Dict[str, str] = {}
+            folder_devices: Dict[str, set] = {}
 
-        if files_written == 0:
-            logger.info("No automatic configuration tasks found")
+            for folder_path, folder_name in site_folders.items():
+                device_names = extract_device_names_from_folder(folder_path)
+                folder_devices[folder_path] = device_names
+
+                for name in device_names:
+                    if name in all_seen_devices:
+                        logger.warning(
+                            f"Device '{name}' found in both '{all_seen_devices[name]}' and '{folder_name}'"
+                        )
+                    else:
+                        all_seen_devices[name] = folder_name
+
+            total_files_written = 0
+            for folder_path, folder_name in site_folders.items():
+                device_names = folder_devices[folder_path]
+                if not device_names:
+                    logger.debug(
+                        f"No devices found in {folder_name}, skipping autoconf"
+                    )
+                    continue
+
+                logger.info(
+                    f"Generating autoconf for site folder '{folder_name}' "
+                    f"({len(device_names)} devices)"
+                )
+                site_prefix = get_autoconf_prefix(folder_name)
+
+                files_written = _run_autoconf_for_devices(
+                    device_filter=device_names,
+                    output_dir=folder_path,
+                    prefix=site_prefix,
+                    dryrun=dryrun,
+                )
+                total_files_written += files_written
+
+            if not dryrun and total_files_written == 0:
+                logger.info("No automatic configuration tasks found")
 
     except pynetbox.RequestError as e:
         logger.error(f"NetBox API error: {e}")
