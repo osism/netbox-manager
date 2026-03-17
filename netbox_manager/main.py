@@ -1425,7 +1425,11 @@ def group_devices_by_cluster(
 
 
 def calculate_loopback_ips(
-    device: Any, ipv4_network: Any, ipv6_network: Optional[Any], offset: int
+    device: Any,
+    ipv4_network: Any,
+    ipv6_network: Optional[Any],
+    offset: int,
+    multiplicator: int = 2,
 ) -> Tuple[Optional[str], Optional[str]]:
     """Calculate IPv4 and IPv6 loopback addresses for a device."""
     position = getattr(device, "position", None)
@@ -1448,8 +1452,8 @@ def calculate_loopback_ips(
             )
             return None, None
 
-    # Calculate IPv4 address: byte_4 = device_position * 2 - 1 + offset
-    byte_4 = position * 2 - 1 + offset
+    # Calculate IPv4 address: byte_4 = device_position * multiplicator - 1 + offset
+    byte_4 = position * multiplicator - 1 + offset
 
     try:
         # Convert network to list of octets and modify the last octet
@@ -1525,6 +1529,9 @@ def _generate_cluster_loopback_tasks() -> Dict[str, List[Dict[str, Any]]]:
             loopback_offset_ipv4 = config_context.get(
                 "_segment_loopback_offset_ipv4", 0
             )
+            loopback_multiplicator = config_context.get(
+                "_segment_loopback_network_multiplicator", 2
+            )
 
             if not loopback_ipv4_network:
                 logger.info(
@@ -1533,7 +1540,7 @@ def _generate_cluster_loopback_tasks() -> Dict[str, List[Dict[str, Any]]]:
                 continue
 
             logger.debug(
-                f"Cluster '{cluster.name}' config: IPv4={loopback_ipv4_network}, IPv6={loopback_ipv6_network}, offset={loopback_offset_ipv4}"
+                f"Cluster '{cluster.name}' config: IPv4={loopback_ipv4_network}, IPv6={loopback_ipv6_network}, offset={loopback_offset_ipv4}, multiplicator={loopback_multiplicator}"
             )
 
             # Parse networks
@@ -1569,7 +1576,11 @@ def _generate_cluster_loopback_tasks() -> Dict[str, List[Dict[str, Any]]]:
                     continue
 
                 ipv4_addr, ipv6_addr = calculate_loopback_ips(
-                    device, ipv4_network, ipv6_network, loopback_offset_ipv4
+                    device,
+                    ipv4_network,
+                    ipv6_network,
+                    loopback_offset_ipv4,
+                    loopback_multiplicator,
                 )
 
                 if ipv4_addr:
