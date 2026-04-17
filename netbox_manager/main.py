@@ -1993,7 +1993,7 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
 
 
 def _split_tasks_by_type(
-    all_tasks: List[Dict[str, Any]]
+    all_tasks: List[Dict[str, Any]],
 ) -> Dict[str, List[Dict[str, Any]]]:
     """Split a list of tasks into separate lists by resource type."""
     tasks_by_type: Dict[str, List[Dict[str, Any]]] = {}
