@@ -288,6 +288,30 @@ The example implements a typical leaf-spine architecture:
 - **External**: 192.168.112.0/20 (Public API access)
 - **IPv6**: fda6:f659:8c2b::/48 (Management IPv6)
 
+## Testing
+
+Unit tests live under `tests/unit/`. The test suite requires Python 3.10 or
+newer (the pinned `pytest` version drops support for older interpreters); the
+Zuul job runs against Python 3.13. To run them locally:
+
+```
+$ pip install -r requirements.txt -r test-requirements.txt
+$ pip install -e .
+$ pytest tests/unit
+```
+
+Alternatively, with pipenv:
+
+```
+$ pipenv install --dev
+$ pipenv run pip install -e .
+$ pipenv run pytest
+```
+
+The unit-test suite is executed in CI via the `netbox-manager-unit-tests`
+Zuul job. Coverage rollout is tracked in
+[issue #232](https://github.com/osism/netbox-manager/issues/232).
+
 ## Documentation
 
 * https://docs.ansible.com/ansible/latest/collections/netbox/netbox/index.html

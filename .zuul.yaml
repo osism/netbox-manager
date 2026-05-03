@@ -24,6 +24,11 @@
     vars:
       pypi_twine_executable: "/tmp/venv/bin/python -m twine"
 
+- job:
+    name: netbox-manager-unit-tests
+    pre-run: playbooks/pre.yml
+    run: playbooks/test-unit.yml
+
 - project:
     merge-mode: squash-merge
     default-branch: main
@@ -31,12 +36,14 @@
       jobs:
         - flake8
         - mypy
+        - netbox-manager-unit-tests
         - python-black
         - yamllint
     periodic-daily:
       jobs:
         - flake8
         - mypy
+        - netbox-manager-unit-tests
         - python-black
         - yamllint
     tag:
