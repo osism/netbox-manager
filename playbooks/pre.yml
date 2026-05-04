@@ -1,0 +1,13 @@
+---
+- name: Run preparations
+  hosts: all
+
+  tasks:
+    - name: Install required packages
+      become: true
+      ansible.builtin.apt:
+        name:
+          - pipenv
+
+  roles:
+    - ensure-pip

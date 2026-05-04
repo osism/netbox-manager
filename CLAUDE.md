@@ -27,6 +27,10 @@ netbox-manager export-archive --image  # Export to netbox-export.img (Linux only
 flake8  # Uses .flake8 config (max line length: 200)
 mypy netbox_manager/  # Type checking (excludes doc/)
 
+# Unit tests
+pip install -r test-requirements.txt  # or: pipenv install --dev
+pytest tests/unit  # Run all unit tests
+
 # Update example files from upstream
 gilt overlay  # Updates example/ from osism/testbed repository
 ```
@@ -197,5 +201,5 @@ Follows NetBox community device type library standards with manufacturer, model,
 - Python 3.8+ required
 - Uses setuptools with git-based versioning
 - Entry point: `netbox-manager` command
-- No test suite currently implemented
+- Unit tests live under `tests/unit/` and are run via `pytest tests/unit`. Coverage rollout is tracked in #232.
 - Gilt pulls example files from osism/testbed repository

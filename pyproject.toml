@@ -33,6 +33,17 @@ dynamic = ["dependencies", "version"]
 [tool.mypy]
 exclude = ["doc"]
 
+[[tool.mypy.overrides]]
+module = "tests.*"
+disable_error_code = ["no-untyped-def"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-ra --strict-markers"
+
 [tool.setuptools]
 packages = ["netbox_manager"]
 
