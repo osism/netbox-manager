@@ -2,6 +2,9 @@
 - name: Run unit tests
   hosts: all
 
+  vars:
+    python_venv_dir: /tmp/venv
+
   tasks:
     - name: Install dependencies
       ansible.builtin.shell:
@@ -12,10 +15,8 @@
           set -o pipefail
           set -x
 
-          export PATH=$PATH:$HOME/.local/bin
-
-          pipenv install --dev --deploy
-          pipenv run pip install .
+          {{ python_venv_dir }}/bin/pipenv install --dev --deploy
+          {{ python_venv_dir }}/bin/pipenv run pip install .
 
     - name: Run pytest
       ansible.builtin.shell:
@@ -26,6 +27,4 @@
           set -o pipefail
           set -x
 
-          export PATH=$PATH:$HOME/.local/bin
-
-          pipenv run pytest
+          {{ python_venv_dir }}/bin/pipenv run pytest
