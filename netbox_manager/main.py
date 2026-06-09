@@ -1624,6 +1624,65 @@ def _generate_cluster_loopback_tasks() -> Dict[str, List[Dict[str, Any]]]:
     return tasks_by_type
 
 
+def _natural_sort_key(name: str) -> List[Any]:
+    """Build a numeric-aware sort key so e.g. 'Ethernet2' sorts before 'Ethernet10'."""
+    return [
+        int(part) if part.isdigit() else part.lower()
+        for part in re.split(r"(\d+)", name)
+    ]
+
+
+def _label_suffix(index: int) -> str:
+    """Map a zero-based index to a spreadsheet-style suffix: 0->a, 25->z, 26->aa."""
+    suffix = ""
+    index += 1
+    while index > 0:
+        index, remainder = divmod(index - 1, 26)
+        suffix = chr(ord("a") + remainder) + suffix
+    return suffix
+
+
+def _disambiguate_interface_labels(
+    tasks: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Append suffixes to duplicate interface labels on the same device.
+
+    A switch's ``device_interface_label`` (e.g. ``data1``) is applied to every
+    connected node interface. When a single node has multiple links carrying the
+    same label, the labels collide. This detects such duplicates per
+    ``(device, label)`` and renames them ``data1a``, ``data1b``, ... in natural
+    order of the node interface name. Labels that occur only once are left
+    unchanged, and tasks without a label are passed through untouched.
+    """
+    groups: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    for task in tasks:
+        interface = task.get("device_interface")
+        if not interface:
+            continue
+        label = interface.get("label")
+        if not label:
+            continue
+        key = (interface["device"], label)
+        groups.setdefault(key, []).append(interface)
+
+    for (device, label), interfaces in groups.items():
+        if len(interfaces) < 2:
+            continue
+
+        interfaces.sort(key=lambda iface: _natural_sort_key(iface["name"]))
+        renamed = []
+        for index, interface in enumerate(interfaces):
+            interface["label"] = f"{label}{_label_suffix(index)}"
+            renamed.append(interface["label"])
+
+        logger.info(
+            f"Disambiguated {len(interfaces)} duplicate '{label}' labels on "
+            f"{device}: {', '.join(renamed)}"
+        )
+
+    return tasks
+
+
 def _generate_device_interface_labels() -> List[Dict[str, Any]]:
     """Generate device interface label tasks based on switch, router, and firewall custom fields."""
     tasks = []
@@ -1740,6 +1799,7 @@ def _generate_device_interface_labels() -> List[Dict[str, Any]]:
                             f"Could not determine interface name for connection to {connected_device.name}"
                         )
 
+    tasks = _disambiguate_interface_labels(tasks)
     logger.info(f"Generated {len(tasks)} device interface label tasks")
     return tasks
 
