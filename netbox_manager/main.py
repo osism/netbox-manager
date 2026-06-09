@@ -14,7 +14,7 @@ import sys
 import tarfile
 import tempfile
 import time
-from typing import Any, Optional, Tuple, Dict, List
+from typing import Any, Optional, Set, Tuple, Dict, List
 from typing_extensions import Annotated
 import warnings
 
@@ -1653,6 +1653,12 @@ def _disambiguate_interface_labels(
     ``(device, label)`` and renames them ``data1a``, ``data1b``, ... in natural
     order of the node interface name. Labels that occur only once are left
     unchanged, and tasks without a label are passed through untouched.
+
+    Generated suffixes are checked against every other label already present on
+    the same device, so a suffix can never re-introduce a duplicate by colliding
+    with an unrelated label. For example, if one switch labels a node ``data1``
+    twice and another switch labels the same node ``data1a`` once, the ``data1``
+    group skips the taken ``data1a`` and becomes ``data1b``, ``data1c``.
     """
     groups: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     for task in tasks:
@@ -1665,15 +1671,31 @@ def _disambiguate_interface_labels(
         key = (interface["device"], label)
         groups.setdefault(key, []).append(interface)
 
+    # Per device, reserve every label that keeps its original value (labels that
+    # occur only once). Generated suffixes for the renamed groups must avoid
+    # these, and avoid each other, so disambiguation never recreates a duplicate.
+    reserved: Dict[str, Set[str]] = {}
+    for (device, label), interfaces in groups.items():
+        if len(interfaces) < 2:
+            reserved.setdefault(device, set()).add(label)
+
     for (device, label), interfaces in groups.items():
         if len(interfaces) < 2:
             continue
 
+        taken = reserved.setdefault(device, set())
         interfaces.sort(key=lambda iface: _natural_sort_key(iface["name"]))
         renamed = []
-        for index, interface in enumerate(interfaces):
-            interface["label"] = f"{label}{_label_suffix(index)}"
-            renamed.append(interface["label"])
+        index = 0
+        for interface in interfaces:
+            new_label = f"{label}{_label_suffix(index)}"
+            while new_label in taken:
+                index += 1
+                new_label = f"{label}{_label_suffix(index)}"
+            taken.add(new_label)
+            interface["label"] = new_label
+            renamed.append(new_label)
+            index += 1
 
         logger.info(
             f"Disambiguated {len(interfaces)} duplicate '{label}' labels on "

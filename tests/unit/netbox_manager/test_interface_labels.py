@@ -125,3 +125,60 @@ def test_overflow_beyond_26_links():
 def test_returns_same_list_object():
     tasks = [_task("node-0", "Ethernet3", "data1")]
     assert main._disambiguate_interface_labels(tasks) is tasks
+
+
+def test_generated_suffix_skips_existing_singleton_label():
+    # Switch A labels node-0 'data1' twice; switch B labels node-0 'data1a' once.
+    # The singleton 'data1a' must survive, and the 'data1' group must skip it.
+    tasks = [
+        _task("node-0", "Ethernet3", "data1"),
+        _task("node-0", "Ethernet4", "data1"),
+        _task("node-0", "Ethernet5", "data1a"),
+    ]
+    main._disambiguate_interface_labels(tasks)
+    by_name = {
+        t["device_interface"]["name"]: t["device_interface"]["label"] for t in tasks
+    }
+    assert by_name == {
+        "Ethernet3": "data1b",
+        "Ethernet4": "data1c",
+        "Ethernet5": "data1a",
+    }
+    # No duplicate labels survive on the node.
+    labels = list(by_name.values())
+    assert len(labels) == len(set(labels))
+
+
+def test_generated_suffixes_do_not_collide_between_groups():
+    # 'data1' group would generate 'data1a'; an existing 'data1a' group would
+    # generate 'data1aa'. Neither set may overlap the other on the same node.
+    tasks = [
+        _task("node-0", "Ethernet3", "data1"),
+        _task("node-0", "Ethernet4", "data1"),
+        _task("node-0", "Ethernet5", "data1a"),
+        _task("node-0", "Ethernet6", "data1a"),
+    ]
+    main._disambiguate_interface_labels(tasks)
+    labels = _labels(tasks)
+    assert len(labels) == len(set(labels))
+
+
+def test_singleton_reservation_is_per_device():
+    # A singleton 'data1a' on node-1 must not push node-0's 'data1' group off 'a'.
+    tasks = [
+        _task("node-0", "Ethernet3", "data1"),
+        _task("node-0", "Ethernet4", "data1"),
+        _task("node-1", "Ethernet5", "data1a"),
+    ]
+    main._disambiguate_interface_labels(tasks)
+    by_dev_name = {
+        (t["device_interface"]["device"], t["device_interface"]["name"]): t[
+            "device_interface"
+        ]["label"]
+        for t in tasks
+    }
+    assert by_dev_name == {
+        ("node-0", "Ethernet3"): "data1a",
+        ("node-0", "Ethernet4"): "data1b",
+        ("node-1", "Ethernet5"): "data1a",
+    }
