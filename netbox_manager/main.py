@@ -1705,8 +1705,49 @@ def _disambiguate_interface_labels(
     return tasks
 
 
+def _resolve_device_interface_label(
+    netbox_api: pynetbox.api,
+    device: Any,
+    segment_label_cache: Dict[int, Optional[str]],
+) -> Optional[str]:
+    """Resolve the interface label for a source device.
+
+    The per-device ``device_interface_label`` custom field takes precedence.
+    When it is not set, fall back to the ``_segment_device_interface_label`` key
+    of the device's segment (cluster) config context, retrieved via
+    ``_get_cluster_segment_config_context()``. Config contexts are fetched at
+    most once per cluster through ``segment_label_cache``. Returns ``None`` when
+    neither source provides a label.
+    """
+    if hasattr(device, "custom_fields") and device.custom_fields:
+        device_label = device.custom_fields.get("device_interface_label")
+        if device_label:
+            return device_label
+
+    cluster = getattr(device, "cluster", None)
+    if not cluster:
+        return None
+
+    cluster_id = cluster.id
+    if cluster_id not in segment_label_cache:
+        config_context = _get_cluster_segment_config_context(
+            netbox_api, cluster_id, getattr(cluster, "name", "")
+        )
+        segment_label_cache[cluster_id] = config_context.get(
+            "_segment_device_interface_label"
+        )
+
+    return segment_label_cache[cluster_id]
+
+
 def _generate_device_interface_labels() -> List[Dict[str, Any]]:
-    """Generate device interface label tasks based on switch, router, and firewall custom fields."""
+    """Generate device interface label tasks for switches, routers, and firewalls.
+
+    The interface label of a source device is taken from its
+    ``device_interface_label`` custom field, falling back to the
+    ``_segment_device_interface_label`` segment config context key when the
+    custom field is not set.
+    """
     tasks = []
     netbox_api = create_netbox_api()
 
@@ -1714,36 +1755,36 @@ def _generate_device_interface_labels() -> List[Dict[str, Any]]:
         "Analyzing switch, router, and firewall devices for device interface labeling..."
     )
 
-    # Get all devices and filter for switches, routers, and firewalls with device_interface_label custom field
+    # Get all devices and filter for switches, routers, and firewalls that have
+    # an interface label, either from the device_interface_label custom field or
+    # the segment-level _segment_device_interface_label config context.
     all_devices = netbox_api.dcim.devices.all()
     devices_with_labels = []
     switch_roles = get_switch_roles()
+    segment_label_cache: Dict[int, Optional[str]] = {}
 
     for device in all_devices:
         device_role_slug = get_device_role_slug(device)
 
-        # Check if device is a switch, router, or firewall with device_interface_label custom field
+        # Check if device is a switch, router, or firewall
         if device_role_slug in switch_roles or device_role_slug in [
             "router",
             "firewall",
         ]:
-            if hasattr(device, "custom_fields") and device.custom_fields:
-                device_interface_label = device.custom_fields.get(
-                    "device_interface_label"
+            label_value = _resolve_device_interface_label(
+                netbox_api, device, segment_label_cache
+            )
+            if label_value:
+                devices_with_labels.append((device, label_value))
+                device_type_name = (
+                    "switch" if device_role_slug in switch_roles else device_role_slug
                 )
-                if device_interface_label:
-                    devices_with_labels.append((device, device_interface_label))
-                    device_type_name = (
-                        "switch"
-                        if device_role_slug in switch_roles
-                        else device_role_slug
-                    )
-                    logger.debug(
-                        f"Found {device_type_name} {device.name} with device_interface_label: {device_interface_label}"
-                    )
+                logger.debug(
+                    f"Found {device_type_name} {device.name} with interface label: {label_value}"
+                )
 
     logger.info(
-        f"Found {len(devices_with_labels)} devices (switches/routers/firewalls) with device_interface_label custom field"
+        f"Found {len(devices_with_labels)} devices (switches/routers/firewalls) with an interface label"
     )
 
     # Process each device with device_interface_label
@@ -2580,7 +2621,7 @@ def autoconf_command(
 
     1. Create Loopback0 interfaces for switches and devices with specific roles
     2. Generate cluster-based loopback IP addresses for devices with assigned clusters
-    3. Set interface labels on connected node devices based on switch device_interface_label custom field
+    3. Set interface labels on connected node devices based on the device_interface_label custom field or the _segment_device_interface_label segment config context
     4. Assign primary MAC addresses to interfaces that have exactly one MAC
     5. Assign OOB IP addresses from eth0 interfaces to devices
     6. Assign primary IPv4 addresses from Loopback0 interfaces to devices
