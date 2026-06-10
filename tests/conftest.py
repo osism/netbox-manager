@@ -12,6 +12,16 @@ os.environ.setdefault("NETBOX_MANAGER_URL", "http://localhost:8000")
 os.environ.setdefault("NETBOX_MANAGER_TOKEN", "test-token")
 os.environ.setdefault("NETBOX_MANAGER_IGNORE_SSL_ERRORS", "false")
 
+# Keep the role helpers hermetic. A real deployment env may export
+# `NETBOX_MANAGER_NODE_ROLES` / `..._SWITCH_ROLES`, which dynaconf would load as
+# `settings.NODE_ROLES` / `settings.SWITCH_ROLES` and make `get_node_roles()` /
+# `get_switch_roles()` return the deployment list -- breaking the default-role
+# and `is _DEFAULT_*` assertions. Drop them before `netbox_manager.main` is
+# imported so the in-module defaults are the baseline; tests that need an
+# override set it explicitly via `monkeypatch.setattr(main.settings, ...)`.
+os.environ.pop("NETBOX_MANAGER_NODE_ROLES", None)
+os.environ.pop("NETBOX_MANAGER_SWITCH_ROLES", None)
+
 # Heavier per-module fixtures -- full `pynetbox.api` clients, mocked
 # `ansible_runner.run`, `git.Repo`, `subprocess` -- belong to the later #232
 # tiers. Tier 1 (#247) only needs the lightweight attribute-bag factories below.
