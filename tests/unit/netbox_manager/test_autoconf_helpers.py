@@ -75,14 +75,50 @@ class TestFilterTasksByDevice:
         # `device_interface` task. The pre-consolidation
         # `_filter_portchannel_tasks_by_device` ran on exactly this list.
         tasks = [
-            {"device_interface": {"device": "switch-1", "name": "PortChannel3", "type": "lag"}},
-            {"device_interface": {"device": "switch-2", "name": "PortChannel3", "type": "lag"}},
-            {"device_interface": {"device": "switch-1", "name": "Ethernet3", "lag": "PortChannel3"}},
-            {"device_interface": {"device": "switch-2", "name": "Ethernet3", "lag": "PortChannel3"}},
+            {
+                "device_interface": {
+                    "device": "switch-1",
+                    "name": "PortChannel3",
+                    "type": "lag",
+                }
+            },
+            {
+                "device_interface": {
+                    "device": "switch-2",
+                    "name": "PortChannel3",
+                    "type": "lag",
+                }
+            },
+            {
+                "device_interface": {
+                    "device": "switch-1",
+                    "name": "Ethernet3",
+                    "lag": "PortChannel3",
+                }
+            },
+            {
+                "device_interface": {
+                    "device": "switch-2",
+                    "name": "Ethernet3",
+                    "lag": "PortChannel3",
+                }
+            },
         ]
         assert main._filter_tasks_by_device(tasks, {"switch-1"}) == [
-            {"device_interface": {"device": "switch-1", "name": "PortChannel3", "type": "lag"}},
-            {"device_interface": {"device": "switch-1", "name": "Ethernet3", "lag": "PortChannel3"}},
+            {
+                "device_interface": {
+                    "device": "switch-1",
+                    "name": "PortChannel3",
+                    "type": "lag",
+                }
+            },
+            {
+                "device_interface": {
+                    "device": "switch-1",
+                    "name": "Ethernet3",
+                    "lag": "PortChannel3",
+                }
+            },
         ]
 
 
