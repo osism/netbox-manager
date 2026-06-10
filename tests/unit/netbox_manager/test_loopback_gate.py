@@ -56,8 +56,14 @@ class TestShouldHaveLoopbackInterface:
         assert main.should_have_loopback_interface(device) is True
 
     def test_node_role_does_not_require_hwsku(self, make_device):
-        # "control" is a node role; the empty default custom_fields is fine.
-        device = make_device(role_slug="control")
+        # The node-role path short-circuits before the hwsku check, so a node
+        # role gets Loopback0 even with a SONiC hwsku present -- the opposite
+        # hwsku state from ``test_node_role_always_gets_loopback`` (which has
+        # none). Together the two pin node-role eligibility as hwsku-independent.
+        device = make_device(
+            role_slug="control",
+            custom_fields={"sonic_parameters": {"hwsku": "AS7326"}},
+        )
         assert main.should_have_loopback_interface(device) is True
 
     def test_switch_role_with_hwsku_gets_loopback(self, make_device):
