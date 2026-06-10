@@ -2449,18 +2449,6 @@ def _filter_tasks_by_type_by_device(
     return filtered
 
 
-def _filter_portchannel_tasks_by_device(
-    tasks: List[Dict[str, Any]], device_filter: set
-) -> List[Dict[str, Any]]:
-    """Filter portchannel tasks, keeping a pair if either device matches."""
-    filtered = []
-    for task in tasks:
-        names = _extract_device_names_from_autoconf_task(task)
-        if any(name in device_filter for name in names):
-            filtered.append(task)
-    return filtered
-
-
 def _run_autoconf_for_devices(
     device_filter: Optional[set],
     output_dir: str,
@@ -2532,7 +2520,10 @@ def _run_autoconf_for_devices(
         cluster_loopback_tasks = _filter_tasks_by_type_by_device(
             cluster_loopback_tasks, device_filter
         )
-        portchannel_tasks_list = _filter_portchannel_tasks_by_device(
+        # PortChannel generation only emits single-device `device_interface`
+        # tasks (LAG creations + member assignments), so the generic per-task
+        # device filter is sufficient -- there is no two-device "pair" to keep.
+        portchannel_tasks_list = _filter_tasks_by_device(
             portchannel_tasks_list, device_filter
         )
         other_tasks = _filter_tasks_by_type_by_device(other_tasks, device_filter)

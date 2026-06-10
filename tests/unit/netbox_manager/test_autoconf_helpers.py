@@ -69,6 +69,22 @@ class TestFilterTasksByDevice:
         tasks = [{"device_interface": {"device": "node-0"}}]
         assert main._filter_tasks_by_device(tasks, {"switch-9"}) == []
 
+    def test_keeps_matching_portchannel_lag_tasks(self):
+        # The shapes `_generate_portchannel_tasks` actually emits: per-switch LAG
+        # creations and member assignments, each a single-device
+        # `device_interface` task. The pre-consolidation
+        # `_filter_portchannel_tasks_by_device` ran on exactly this list.
+        tasks = [
+            {"device_interface": {"device": "switch-1", "name": "PortChannel3", "type": "lag"}},
+            {"device_interface": {"device": "switch-2", "name": "PortChannel3", "type": "lag"}},
+            {"device_interface": {"device": "switch-1", "name": "Ethernet3", "lag": "PortChannel3"}},
+            {"device_interface": {"device": "switch-2", "name": "Ethernet3", "lag": "PortChannel3"}},
+        ]
+        assert main._filter_tasks_by_device(tasks, {"switch-1"}) == [
+            {"device_interface": {"device": "switch-1", "name": "PortChannel3", "type": "lag"}},
+            {"device_interface": {"device": "switch-1", "name": "Ethernet3", "lag": "PortChannel3"}},
+        ]
+
 
 class TestFilterTasksByTypeByDevice:
     """``_filter_tasks_by_type_by_device`` filters each resource-type bucket."""
@@ -87,30 +103,3 @@ class TestFilterTasksByTypeByDevice:
             # The bucket key is preserved even when nothing matches.
             "cable": [],
         }
-
-
-class TestFilterPortchannelTasksByDevice:
-    """``_filter_portchannel_tasks_by_device`` keeps a pair if either matches."""
-
-    def test_keeps_task_when_either_device_matches(self):
-        tasks = [
-            {
-                "cable": {
-                    "termination_a": {"device": "switch-1"},
-                    "termination_b": {"device": "switch-2"},
-                }
-            },
-            {"device_interface": {"device": "switch-9"}},
-        ]
-        assert main._filter_portchannel_tasks_by_device(tasks, {"switch-2"}) == [
-            {
-                "cable": {
-                    "termination_a": {"device": "switch-1"},
-                    "termination_b": {"device": "switch-2"},
-                }
-            }
-        ]
-
-    def test_empty_filter_keeps_nothing(self):
-        tasks = [{"device_interface": {"device": "switch-1"}}]
-        assert main._filter_portchannel_tasks_by_device(tasks, set()) == []
