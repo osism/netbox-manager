@@ -58,12 +58,23 @@ The scripts read these environment variables (all optional):
 | `CLUSTER_NAME` | `netbox-manager-e2e` | kind cluster name |
 | `NAMESPACE` | `netbox` | Kubernetes namespace for NetBox |
 | `NODE_IMAGE` | `kindest/node:v1.35.5` | kind node image (pins the Kubernetes version) |
-| `CHART_VERSION` | `8.3.18` | pinned `netbox-chart` version |
+| `CHART_VERSION` | `8.2.5` | pinned `netbox-chart` version |
 | `NETBOX_TOKEN` | random | superuser/client API token |
 | `NETBOX_SUPERUSER_PASSWORD` | random | superuser password |
 
 The chart version is pinned for reproducibility; bump it deliberately
 and re-pin the expected counts (see below) when NetBox changes.
+
+Chart `8.2.5` ships NetBox `v4.5.10`. NetBox `v4.5` introduced peppered
+"v2" API tokens (`Authorization: Bearer nbt_<key>.<secret>`), and the
+chart auto-generates a token pepper — so its bootstrap only ever creates a
+v2 token and `superuser.apiToken` is never materialised as a usable "v1"
+token. `pynetbox` and the `netbox.netbox` collection still send
+`Authorization: Token <key>` (a v1 token), which NetBox keeps accepting
+through `v4.6` (legacy v1 support is removed in `v4.7`). So
+`deploy_netbox.sh` mints its own deterministic v1 token for the superuser
+after the rollout (via `manage.py shell`); that token — `NETBOX_TOKEN` — is
+what the client uses. Re-check this when bumping the chart toward `v4.7`.
 
 ## What is asserted
 
