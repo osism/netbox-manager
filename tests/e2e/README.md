@@ -118,9 +118,8 @@ device creation, so its expected value must come from a baseline run.
 
 ## CI
 
-The E2E test runs as the `netbox-manager-e2e` Zuul job in the
-`periodic-daily` pipeline only — not in the PR `check` gate, which stays
-fast (linters + unit tests). See `.zuul.yaml` and
+The E2E test runs as the `netbox-manager-e2e` Zuul job in both the PR
+`check` gate and the `periodic-daily` pipeline. See `.zuul.yaml` and
 `playbooks/pre-e2e.yml` / `playbooks/test-e2e.yml`.
 
 `pre-e2e.yml` sets `net.ipv6.conf.*.accept_ra=2` on the node before kind
