@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- End-to-end test harness (`make e2e`) deploying NetBox on kind via the pinned netbox-chart and verifying `example/` through the REST API (osism/netbox-manager#262)
+
 ## [v0.20260310.0] - 2026-03-10
 
 ### Added

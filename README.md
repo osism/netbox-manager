@@ -312,6 +312,22 @@ The unit-test suite is executed in CI via the `netbox-manager-unit-tests`
 Zuul job. Coverage rollout is tracked in
 [issue #232](https://github.com/osism/netbox-manager/issues/232).
 
+### End-to-end tests
+
+A real end-to-end test deploys NetBox on a local
+[kind](https://kind.sigs.k8s.io/) cluster, applies the bundled
+`example/` data with `netbox-manager run`, and verifies the result via
+the NetBox REST API:
+
+```
+$ make e2e
+```
+
+It requires `kind`, `kubectl`, `helm`, and a running Docker (or Podman)
+daemon. See [`tests/e2e/README.md`](tests/e2e/README.md) for
+prerequisites and usage. The test runs nightly in CI via the
+`netbox-manager-e2e` Zuul job (periodic only, not in the PR gate).
+
 ## Documentation
 
 * https://docs.ansible.com/ansible/latest/collections/netbox/netbox/index.html
