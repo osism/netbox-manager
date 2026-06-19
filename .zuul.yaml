@@ -44,6 +44,7 @@
         - flake8
         - mypy
         - netbox-manager-unit-tests
+        - netbox-manager-e2e
         - python-black
         - yamllint
     periodic-daily:
