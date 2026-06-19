@@ -29,6 +29,13 @@
     pre-run: playbooks/pre.yml
     run: playbooks/test-unit.yml
 
+- job:
+    name: netbox-manager-e2e
+    nodeset: ubuntu-noble
+    pre-run: playbooks/pre-e2e.yml
+    run: playbooks/test-e2e.yml
+    timeout: 2400
+
 - project:
     merge-mode: squash-merge
     default-branch: main
@@ -44,6 +51,7 @@
         - flake8
         - mypy
         - netbox-manager-unit-tests
+        - netbox-manager-e2e
         - python-black
         - yamllint
     tag:
