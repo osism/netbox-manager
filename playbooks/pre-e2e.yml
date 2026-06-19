@@ -1,0 +1,104 @@
+---
+- name: Prepare the E2E node
+  hosts: all
+
+  vars:
+    # SHA256 digests of the linux/amd64 artifacts for the pinned tool
+    # versions below. They guard against a tampered download (CDN/DNS
+    # hijack, TLS-intercepting proxy) installing an attacker-controlled
+    # binary as root. Re-pin each digest whenever its *_version is bumped.
+    kind_version: v0.32.0
+    kind_sha256: 50030de23cf40a18505f20426f6a8506bedf13c6e509244bd1fa9463721b0f54
+    kubectl_version: v1.35.5
+    kubectl_sha256: 90f75ea6ecc9ea5633262e1c0b83a40560003b30fc94a04cb099404fcef0c224
+    helm_version: v3.16.4
+    helm_sha256: fc307327959aa38ed8f9f7e66d45492bb022a66c3e5da6063958254b9767d179
+
+  pre_tasks:
+    # This CI node is IPv6-only and learns its address and default route via
+    # SLAAC / Router Advertisements. Later, `kind create cluster` makes Docker
+    # create a dual-stack network, which sets net.ipv6.conf.all.forwarding=1;
+    # with the default accept_ra=1 the kernel then stops honouring RAs, so the
+    # SLAAC default route expires and the node drops off the network a few
+    # minutes into the run (RUN END RESULT_UNREACHABLE before the test even
+    # starts). accept_ra=2 keeps RAs honoured even while forwarding is on,
+    # preserving the default route. Set it here -- before Docker/kind enable
+    # forwarding -- so the route never lapses. See
+    # https://docs.docker.com/engine/daemon/ipv6/ and
+    # https://forums.docker.com/t/docker-removes-host-ipv6-default-route/83238
+    - name: Keep accepting IPv6 RAs after Docker enables forwarding (preserve default route)
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-netbox-manager-e2e-accept-ra.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          net.ipv6.conf.all.accept_ra = 2
+          net.ipv6.conf.default.accept_ra = 2
+          {% if ansible_default_ipv6.interface is defined %}
+          net.ipv6.conf.{{ ansible_default_ipv6.interface }}.accept_ra = 2
+          {% endif %}
+
+    - name: Apply the accept_ra sysctl settings now
+      become: true
+      ansible.builtin.command:
+        cmd: sysctl -p /etc/sysctl.d/99-netbox-manager-e2e-accept-ra.conf
+      changed_when: true
+
+  roles:
+    - ensure-pip
+    - ensure-pipenv
+    - ensure-docker
+
+  tasks:
+    - name: Ensure the Docker service is running
+      become: true
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Install kubectl
+      become: true
+      ansible.builtin.get_url:
+        url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
+        dest: /usr/local/bin/kubectl
+        mode: "0755"
+        checksum: "sha256:{{ kubectl_sha256 }}"
+
+    - name: Install kind
+      become: true
+      ansible.builtin.get_url:
+        url: "https://kind.sigs.k8s.io/dl/{{ kind_version }}/kind-linux-amd64"
+        dest: /usr/local/bin/kind
+        mode: "0755"
+        checksum: "sha256:{{ kind_sha256 }}"
+
+    - name: Create a private temporary directory for the Helm archive
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: helm
+      register: helm_tmp
+
+    - name: Download the Helm archive
+      ansible.builtin.get_url:
+        url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        dest: "{{ helm_tmp.path }}/helm.tar.gz"
+        mode: "0644"
+        checksum: "sha256:{{ helm_sha256 }}"
+
+    - name: Install Helm
+      become: true
+      ansible.builtin.unarchive:
+        src: "{{ helm_tmp.path }}/helm.tar.gz"
+        dest: /usr/local/bin
+        remote_src: true
+        extra_opts:
+          - --strip-components=1
+          - linux-amd64/helm
+
+    - name: Remove the temporary Helm directory
+      ansible.builtin.file:
+        path: "{{ helm_tmp.path }}"
+        state: absent
