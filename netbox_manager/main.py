@@ -56,36 +56,32 @@ settings = Dynaconf(
     load_dotenv=True,
 )
 
-# NOTE: Register validators for common settings
+
+def _as_bool(value: object) -> bool:
+    """Cast a bool, or a "true"/"yes" string, to bool for env-provided flags."""
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ["true", "yes"]
+
+
+# NOTE: Register validators for common settings.
+#
+# Each setting uses a single validator that carries its default. A combined
+# `Validator(X, is_type_of=...) | Validator(X, ..., default=D)` does NOT apply
+# the default when X is unset: the first branch accepts the absence and
+# short-circuits the OR, so the default never runs and `settings.X` then
+# raises AttributeError (e.g. VERBOSE when configured purely via env vars).
 settings.validators.register(
-    Validator("DEVICETYPE_LIBRARY", is_type_of=str)
-    | Validator("DEVICETYPE_LIBRARY", is_type_of=None, default=None),
-    Validator("MODULETYPE_LIBRARY", is_type_of=str)
-    | Validator("MODULETYPE_LIBRARY", is_type_of=None, default=None),
-    Validator("RESOURCES", is_type_of=str)
-    | Validator("RESOURCES", is_type_of=None, default=None),
-    Validator("VARS", is_type_of=str)
-    | Validator("VARS", is_type_of=None, default=None),
-    Validator("IGNORED_FILES", is_type_of=list)
-    | Validator(
+    Validator("DEVICETYPE_LIBRARY", default=None),
+    Validator("MODULETYPE_LIBRARY", default=None),
+    Validator("RESOURCES", default=None),
+    Validator("VARS", default=None),
+    Validator(
         "IGNORED_FILES",
-        is_type_of=None,
         default=["000-external.yml", "000-external.yaml"],
     ),
-    Validator("IGNORE_SSL_ERRORS", is_type_of=bool)
-    | Validator(
-        "IGNORE_SSL_ERRORS",
-        is_type_of=str,
-        cast=lambda v: v.lower() in ["true", "yes"],
-        default=False,
-    ),
-    Validator("VERBOSE", is_type_of=bool)
-    | Validator(
-        "VERBOSE",
-        is_type_of=str,
-        cast=lambda v: v.lower() in ["true", "yes"],
-        default=False,
-    ),
+    Validator("IGNORE_SSL_ERRORS", default=False, cast=_as_bool),
+    Validator("VERBOSE", default=False, cast=_as_bool),
 )
 
 # Default device roles that should get Loopback0 interfaces
