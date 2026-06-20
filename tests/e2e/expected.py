@@ -13,11 +13,15 @@ from __future__ import annotations
 
 # Exact object counts, keyed by the pynetbox endpoint path
 # (``app.endpoint``). Every count maps one-to-one to a stanza in
-# ``example/`` except ``dcim.interfaces``: NetBox auto-instantiates one
-# interface per device-type interface template on device creation
-# (250 template interfaces across the 16 devices) and the resources add
-# 17 net-new interfaces (16 ``Loopback0`` plus the manager ``vlan100``),
-# for 267 total.
+# ``example/`` except:
+#   - ``dcim.interfaces``: NetBox auto-instantiates one interface per
+#     device-type interface template on device creation (250 template
+#     interfaces across the 16 devices) and the resources add 17 net-new
+#     interfaces (16 ``Loopback0`` plus the manager ``vlan100``), for 267.
+#   - ``dcim.cables``: 44 cable stanzas but only 43 distinct cables --
+#     ``300-testbed-switch-3.yml`` lists the ``testbed-switch-3:Ethernet4
+#     <-> testbed-switch-1:Ethernet124`` cable twice, and the second
+#     (idempotent) stanza creates nothing.
 EXPECTED_COUNTS: dict[str, int] = {
     "tenancy.tenants": 1,
     "dcim.sites": 1,
@@ -25,7 +29,7 @@ EXPECTED_COUNTS: dict[str, int] = {
     "dcim.racks": 1,
     "dcim.devices": 16,
     "dcim.interfaces": 267,
-    "dcim.cables": 44,
+    "dcim.cables": 43,
     "dcim.mac_addresses": 60,
     "ipam.vlans": 1,
     "ipam.prefixes": 4,
@@ -77,7 +81,10 @@ MAC_DEVICE = "testbed-node-0"
 MAC_INTERFACE = "Ethernet0"
 
 # Primary / OOB IP wiring for testbed-node-0.
+# PRIMARY_IP6 is the RFC 5952 canonical form NetBox returns: the example data
+# writes ``fda6:f659:8c2b::192:168:16:10`` but ``::`` may only compress a run
+# of two or more zero groups, so the single zero group is rendered ``:0:``.
 PRIMARY_DEVICE = "testbed-node-0"
 PRIMARY_IP4 = "192.168.16.10/32"
-PRIMARY_IP6 = "fda6:f659:8c2b::192:168:16:10/128"
+PRIMARY_IP6 = "fda6:f659:8c2b:0:192:168:16:10/128"
 OOB_IP = "172.16.0.10/20"

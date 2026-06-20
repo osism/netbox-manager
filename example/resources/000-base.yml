@@ -1,0 +1,75 @@
+---
+# Base objects referenced by the numbered resource files. NetBox resolves
+# roles, tags and custom fields by name/slug, so they must exist before
+# 100-initialise.yml and the device definitions in 200-*/300-* run. Only the
+# objects actually referenced by example/ are created here; the structure
+# mirrors the OSISM production base.
+
+# IPAM roles -- referenced via vlan_role / prefix_role.
+- ipam_role:
+    name: OOB
+
+- ipam_role:
+    name: Management
+
+- ipam_role:
+    name: External
+
+# Device roles -- referenced via device_role (by name, and by auto-generated
+# slug for leaf/spine; "Access Leaf" needs an explicit slug to match "accessleaf").
+- device_role:
+    name: Manager
+
+- device_role:
+    name: Control
+
+- device_role:
+    name: Compute
+
+- device_role:
+    name: Storage
+
+- device_role:
+    name: Leaf
+
+- device_role:
+    name: Spine
+
+- device_role:
+    name: Access Leaf
+    slug: accessleaf
+
+# Tags -- referenced via tags:.
+- tag:
+    name: Managed by OSISM
+    slug: managed-by-osism
+
+- tag:
+    name: Managed by Metalbox
+    slug: managed-by-metalbox
+
+- tag:
+    name: Out of Band
+    slug: out-of-band
+
+# Custom fields -- referenced via custom_fields: on the switch devices.
+# sonic_parameters is a JSON field; hwsku/version are keys inside its value,
+# not separate fields.
+- custom_field:
+    name: dnsmasq_dhcp_tag
+    type: text
+    label: dnsmasq DHCP tag
+    description: Overwrite the default dnsmasq DHCP tag
+    required: false
+    object_types:
+      - dcim.device
+
+- custom_field:
+    name: sonic_parameters
+    type: json
+    label: sonic parameters
+    description: SONiC parameters
+    required: false
+    object_types:
+      - dcim.device
+      - dcim.interface
