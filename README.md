@@ -325,8 +325,9 @@ $ make e2e
 
 It requires `kind`, `kubectl`, `helm`, and a running Docker (or Podman)
 daemon. See [`tests/e2e/README.md`](tests/e2e/README.md) for
-prerequisites and usage. The test runs nightly in CI via the
-`netbox-manager-e2e` Zuul job (periodic only, not in the PR gate).
+prerequisites and usage. The test runs in CI via the
+`netbox-manager-e2e` Zuul job, both in the PR `check` gate and nightly
+in the `periodic-daily` pipeline.
 
 ## Documentation
 
