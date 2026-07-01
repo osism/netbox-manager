@@ -6,11 +6,14 @@ from types import SimpleNamespace
 import pytest
 
 # Set dynaconf env vars before any test imports `netbox_manager.main`, since
-# `Dynaconf(...)` and the validator registration run at import time. Defaults
-# are used so tests do not depend on a real `settings.toml` being present.
-os.environ.setdefault("NETBOX_MANAGER_URL", "http://localhost:8000")
-os.environ.setdefault("NETBOX_MANAGER_TOKEN", "test-token")
-os.environ.setdefault("NETBOX_MANAGER_IGNORE_SSL_ERRORS", "false")
+# `Dynaconf(...)` and the validator registration run at import time. Force-set
+# (not `setdefault`) so an exported `NETBOX_MANAGER_URL`/`TOKEN`/
+# `IGNORE_SSL_ERRORS` from a real deployment cannot leak into tests that
+# assert these baseline values, and tests do not depend on a real
+# `settings.toml` being present.
+os.environ["NETBOX_MANAGER_URL"] = "http://localhost:8000"
+os.environ["NETBOX_MANAGER_TOKEN"] = "test-token"
+os.environ["NETBOX_MANAGER_IGNORE_SSL_ERRORS"] = "false"
 
 # Keep the role helpers hermetic. A real deployment env may export
 # `NETBOX_MANAGER_NODE_ROLES` / `..._SWITCH_ROLES`, which dynaconf would load as
