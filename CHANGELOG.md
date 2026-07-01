@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - End-to-end test harness (`make e2e`) deploying NetBox on kind via the pinned netbox-chart and verifying `example/` through the REST API (osism/netbox-manager#262)
 
+### Changed
+- Untagged builds now carry a distinguishing `{tag}.post{ccount}+git.{sha}` version instead of collapsing to the bare release tag, so a local checkout (e.g. the E2E job) is no longer indistinguishable from the published PyPI release (osism/netbox-manager#262)
+
 ## [v0.20260310.0] - 2026-03-10
 
 ### Added
