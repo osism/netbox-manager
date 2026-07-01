@@ -52,8 +52,14 @@ dependencies = {file = ["requirements.txt"]}
 
 [tool.setuptools-git-versioning]
 enabled = true
-dev_template = "{tag}"
-dirty_template = "{tag}"
+# Untagged builds (e.g. CI/E2E on a branch) must NOT collapse to the bare
+# release tag: otherwise a build N commits past v0.20260614.0 reports the
+# exact PyPI release version, making a local checkout indistinguishable from
+# the published package. Encode the commit distance + short SHA so a dev
+# build reads e.g. 0.20260614.0.post21+git.b9a392c. Tagged release builds are
+# unaffected (they use the bare tag), so PyPI artifacts stay clean.
+dev_template = "{tag}.post{ccount}+git.{sha}"
+dirty_template = "{tag}.post{ccount}+git.{sha}.dirty"
 
 [tool.setuptools.package-data]
 netbox_manager = ["requirements.yml", "settings.toml.sample"]
