@@ -595,7 +595,7 @@ def handle_file(
 
     with tempfile.TemporaryDirectory() as temp_dir:
         with tempfile.NamedTemporaryFile(
-            mode="w+", suffix=".yml", delete=False
+            mode="w+", suffix=".yml", delete=False, dir=temp_dir
         ) as temp_file:
             temp_file.write(playbook_resources)
 
