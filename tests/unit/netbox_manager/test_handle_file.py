@@ -119,6 +119,9 @@ class TestHandleFileLoadErrors:
         self, tmp_path, caplog, mock_ansible_runner
     ):
         # The empty-file branch has no fail_fast exit -- it always returns.
+        # Characterization, not endorsement: an empty resource file passing
+        # silently under --fail may itself be a bug (see the PR #266 review
+        # note); a future fix that makes this exit is not a regression.
         file = write_resource_file(tmp_path, "# only a comment\n")
         result = main.handle_file(file, dryrun=False, fail_fast=True)
         assert result is None
@@ -166,6 +169,8 @@ class TestHandleFileTaskValidation:
 
     def test_empty_task_dict_warns_and_never_exits(self, tmp_path, capsys, caplog):
         # An empty task warns and skips regardless of fail_fast (no exit branch).
+        # Characterization, not endorsement -- same asymmetry as the empty-file
+        # branch above; see the PR #266 review note.
         text = "- {}\n- debug:\n    msg: kept\n"
         play = render_playbook(tmp_path, capsys, text, fail_fast=True)
         assert "Empty task in file" in caplog.text
@@ -364,10 +369,10 @@ class TestHandleFileExecution:
         # inventory is the module-level localhost dict (a kwarg the issue omits).
         assert kw["inventory"] is main.inventory
         assert kw["playbook"].endswith(".yml")
-        # The temp playbook is written before run() -- read it back to confirm
-        # the rendered task landed on disk (NamedTemporaryFile(delete=False)).
-        with open(kw["playbook"]) as fp:
-            written = yaml.safe_load(fp)
+        # The recorder snapshots the playbook file at run() time, when it is
+        # guaranteed to exist -- reading it back here instead would depend on
+        # the delete=False temp-file leak that #267 removes.
+        written = mock_ansible_runner.playbooks[0]
         assert "netbox.netbox.netbox_vlan" in written[0]["tasks"][0]
 
     def test_run_verbose_sets_verbosity_3(self, tmp_path, mock_ansible_runner):
