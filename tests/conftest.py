@@ -4,6 +4,7 @@ import os
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from loguru import logger
 
 # Set dynaconf env vars before any test imports `netbox_manager.main`, since
@@ -137,7 +138,13 @@ def caplog(caplog):
         enqueue=False,
     )
     yield caplog
-    logger.remove(handler_id)
+    try:
+        logger.remove(handler_id)
+    except ValueError:
+        # init_logger()'s bare logger.remove() drops *all* sinks, including
+        # this one -- tests that reach it (the #256/#258/#259 main-path tiers)
+        # would otherwise fail here in teardown.
+        pass
 
 
 @pytest.fixture
@@ -153,6 +160,11 @@ def mock_ansible_runner(monkeypatch):
         calls: list of the keyword-argument dicts passed to each ``run`` call
             (stays empty when ``run`` is never reached -- dry-run, show-playbooks,
             no-tasks-after-filter, or an early error return).
+        playbooks: list (parallel to ``calls``) of the parsed content of each
+            ``playbook`` file, snapshotted at call time. Assert on this rather
+            than reading ``calls[n]["playbook"]`` back from disk afterwards --
+            the temp playbook currently survives ``handle_file`` only due to a
+            leak (no ``dir=`` on the ``NamedTemporaryFile``) that #267 fixes.
         status: the ``result.status`` string ``run`` reports back; set it to
             ``"failed"`` before calling ``handle_file`` to drive the fail-fast
             failure gate.
@@ -166,10 +178,17 @@ def mock_ansible_runner(monkeypatch):
     class _RecordingAnsibleRunner:
         def __init__(self):
             self.calls = []
+            self.playbooks = []
             self.status = "successful"
 
         def run(self, **kwargs):
             self.calls.append(kwargs)
+            playbook = kwargs.get("playbook")
+            if playbook is not None and os.path.isfile(playbook):
+                with open(playbook) as fp:
+                    self.playbooks.append(yaml.safe_load(fp))
+            else:
+                self.playbooks.append(None)
             return SimpleNamespace(status=self.status)
 
     fake = _RecordingAnsibleRunner()
