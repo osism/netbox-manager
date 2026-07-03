@@ -3,6 +3,7 @@
 # This code is based on the netbox-community/Device-Type-Library-Import project.
 
 from collections import Counter
+import contextlib
 import os
 import glob
 from re import sub as re_sub
@@ -860,10 +861,14 @@ class DeviceTypes:
         url = f"{baseurl}/api/dcim/device-types/{device_type}/"
         headers = {"Authorization": f"Token {token}"}
 
-        files = {i: (os.path.basename(f), open(f, "rb")) for i, f in images.items()}
-        response = requests.patch(
-            url, headers=headers, files=files, verify=(not self.ignore_ssl)
-        )
+        with contextlib.ExitStack() as stack:
+            files = {
+                i: (os.path.basename(f), stack.enter_context(open(f, "rb")))
+                for i, f in images.items()
+            }
+            response = requests.patch(
+                url, headers=headers, files=files, verify=(not self.ignore_ssl)
+            )
 
         self.handle.log(f"Images {images} updated at {url}: {response}")
         self.counter["images"] += len(images)
