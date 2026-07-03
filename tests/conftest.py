@@ -28,13 +28,18 @@ os.environ.pop("NETBOX_MANAGER_NODE_ROLES", None)
 os.environ.pop("NETBOX_MANAGER_SWITCH_ROLES", None)
 
 # Cross-tier fixtures. The lightweight attribute-bag factories `make_device` /
-# `make_interface` (Tier 1, #247) come first; the heavier `mock_ansible_runner`
-# recorder and the loguru->`caplog` bridge (Tier 4, #252) follow. The Device
-# Type Library seams (Tier 9, #257) -- the fake `pynetbox.api` client
-# (`make_dtl_api`), the `tmp_path` library-tree builder (`make_dtl_tree`), the
-# `LogHandler` call-through spy (`dtl_log_handler`) and the raisable
-# `pynetbox.RequestError` factory (`make_request_error`) -- close the file. The
-# remaining heavy seams (`git.Repo`, `subprocess`) belong to later #232 tiers.
+# `make_interface` (Tier 1, #247) come first; the Tier 5 (#253) generator seams
+# -- the `make_cluster` / `make_config_context` bags and the fake `pynetbox.api`
+# client (`make_netbox_api`, backed by `FakeNetBoxEndpoint`) that the loopback /
+# cluster / interface-label / portchannel generators query -- follow, alongside
+# the `make_device` / `make_interface` keyword extensions those generators read.
+# Next come the heavier `mock_ansible_runner` recorder and the loguru->`caplog`
+# bridge (Tier 4, #252). The Device Type Library seams (Tier 9, #257) -- the
+# fake `pynetbox.api` client (`make_dtl_api`), the `tmp_path` library-tree
+# builder (`make_dtl_tree`), the `LogHandler` call-through spy
+# (`dtl_log_handler`) and the raisable `pynetbox.RequestError` factory
+# (`make_request_error`) -- close the file. The remaining heavy seams
+# (`git.Repo`, `subprocess`) belong to later #232 tiers.
 
 
 @pytest.fixture
@@ -54,9 +59,19 @@ def make_device():
         device_type_model: ``model`` for ``device.device_type``; when omitted
             ``device.device_type`` is ``None``.
         custom_fields: Mapping for ``device.custom_fields`` (defaults to ``{}``).
+        device_id: ``device.id`` -- the value the generators pass as
+            ``dcim.interfaces.filter(device_id=...)`` (defaults to ``None``).
+        cluster: ``device.cluster`` -- a ``make_cluster`` object (or ``None``,
+            the default, for a device with no cluster). Always present as an
+            attribute so ``_generate_cluster_loopback_tasks``' direct
+            ``device.cluster`` read never raises ``AttributeError``.
+        position: ``device.position`` -- the rack position
+            ``calculate_loopback_ips`` reads (defaults to ``None``).
 
-    Shared with later #232 test tiers; extend it here rather than re-deriving
-    device shapes per test module.
+    The Tier 5 generator tests (#253) read ``id`` / ``cluster`` / ``position``;
+    the Tier 1 helper tests (#247) predate them and pass none of the three, so
+    every one is keyword-only with a benign default. Shared with later #232 test
+    tiers; extend it here rather than re-deriving device shapes per test module.
     """
 
     def _make_device(
@@ -66,6 +81,9 @@ def make_device():
         role_name=None,
         device_type_model=None,
         custom_fields=None,
+        device_id=None,
+        cluster=None,
+        position=None,
     ):
         if role_slug is None and role_name is None:
             role = None
@@ -87,6 +105,9 @@ def make_device():
             role=role,
             device_type=device_type,
             custom_fields={} if custom_fields is None else custom_fields,
+            id=device_id,
+            cluster=cluster,
+            position=position,
         )
 
     return _make_device
@@ -97,14 +118,42 @@ def make_interface():
     """Build interface-like attribute bags for the pure-logic helpers.
 
     Returns a factory producing a :class:`types.SimpleNamespace` that exposes
-    only ``type`` (with ``value`` / ``label``), which is all
-    :func:`netbox_manager.main.is_virtual_interface` reads. When neither
-    ``type_value`` nor ``type_label`` is given, ``type`` is ``None``.
+    ``type`` (with ``value`` / ``label``, all
+    :func:`netbox_manager.main.is_virtual_interface` reads) plus the attributes
+    the Tier 5 generators (#253) read off a ``dcim.interfaces.filter(...)``
+    record. When neither ``type_value`` nor ``type_label`` is given, ``type`` is
+    ``None``.
+
+    Keyword arguments of the factory:
+        type_value / type_label: Attributes for ``interface.type``.
+        name: ``interface.name`` -- the port name emitted into label / member
+            tasks and read off a connected endpoint (defaults to ``None``).
+        interface_id: ``interface.id`` -- the identity the PortChannel dedup
+            matches connections on (defaults to ``None``).
+        cable: ``interface.cable`` -- a truthy value marks the port cabled;
+            ``None`` (the default) exercises the not-cabled skip branch.
+        connected_endpoints: ``interface.connected_endpoints`` -- a list of
+            endpoint records (each itself an interface bag exposing ``device`` /
+            ``name`` / ``id``); ``None`` (the default) exercises the
+            no-endpoints skip branch.
+        device: ``interface.device`` -- the device the port lives on. Set on an
+            interface used as a connected endpoint so the generator can read the
+            far-side device back off it (mirrors a real NetBox record); ``None``
+            (the default) exercises the endpoint-without-device skip branch.
 
     Shared with later #232 test tiers.
     """
 
-    def _make_interface(*, type_value=None, type_label=None):
+    def _make_interface(
+        *,
+        type_value=None,
+        type_label=None,
+        name=None,
+        interface_id=None,
+        cable=None,
+        connected_endpoints=None,
+        device=None,
+    ):
         if type_value is None and type_label is None:
             interface_type = None
         else:
@@ -113,9 +162,155 @@ def make_interface():
                 interface_type.value = type_value
             if type_label is not None:
                 interface_type.label = type_label
-        return SimpleNamespace(type=interface_type)
+        return SimpleNamespace(
+            type=interface_type,
+            name=name,
+            id=interface_id,
+            cable=cable,
+            connected_endpoints=connected_endpoints,
+            device=device,
+        )
 
     return _make_interface
+
+
+@pytest.fixture
+def make_cluster():
+    """Build cluster-like attribute bags for the loopback / label generators.
+
+    ``make_cluster(cluster_id=1, name="segment-a")`` returns a
+    :class:`types.SimpleNamespace` exposing the two attributes the generators
+    read off ``device.cluster`` -- ``id`` (the key
+    :func:`netbox_manager.main.group_devices_by_cluster` buckets by and the
+    value passed to ``extras.config_contexts.filter(clusters=...)``) and
+    ``name`` (matched against ``ctx.name`` to select the segment context).
+    Shared with later mock-heavy #232 tiers (#254, #255).
+    """
+
+    def _make_cluster(*, cluster_id=1, name="segment-a"):
+        return SimpleNamespace(id=cluster_id, name=name)
+
+    return _make_cluster
+
+
+@pytest.fixture
+def make_config_context():
+    """Build config-context-like attribute bags for the loopback generators.
+
+    ``make_config_context(name="segment-a", data={...})`` returns a
+    :class:`types.SimpleNamespace` exposing the two attributes
+    :func:`netbox_manager.main._get_cluster_segment_config_context` reads off an
+    ``extras.config_contexts.filter(...)`` record -- ``name`` (matched against
+    the cluster name) and ``data`` (the config dict returned verbatim, or a
+    falsy value to drive the no-data branch). Shared with later mock-heavy #232
+    tiers (#254, #255).
+    """
+
+    def _make_config_context(*, name="segment-a", data=None):
+        return SimpleNamespace(name=name, data=data)
+
+    return _make_config_context
+
+
+class FakeNetBoxEndpoint:
+    """Recording stand-in for a pynetbox API endpoint used by the generators.
+
+    Mirrors :class:`FakeDtlEndpoint` but for the read-only shape the Tier 5
+    generators (#253) touch: ``all()`` and ``filter(**kwargs)``. Behaviour is
+    configured at construction and every call is recorded for assertions:
+
+        all_result: records ``all()`` returns (default empty).
+        filter_lookup: callable mapping the ``filter(**kwargs)`` kwargs dict to
+            the records that call returns (default: always ``[]``). Used for the
+            ``dcim.interfaces.filter(device_id=...)`` and
+            ``extras.config_contexts.filter(clusters=...)`` seams.
+        filter_error: when set, ``filter(...)`` raises it -- drives the
+            defensive ``except`` in ``_get_cluster_segment_config_context``.
+        all_calls: number of ``all()`` calls.
+        filter_calls: list of the keyword dicts passed to ``filter(...)`` (assert
+            the generator queried the expected ``device_id`` / ``clusters``).
+    """
+
+    def __init__(self, *, all_result=None, filter_lookup=None, filter_error=None):
+        self._all_result = [] if all_result is None else list(all_result)
+        self._filter_lookup = filter_lookup
+        self.filter_error = filter_error
+        self.all_calls = 0
+        self.filter_calls = []
+
+    def all(self):
+        self.all_calls += 1
+        return list(self._all_result)
+
+    def filter(self, **kwargs):
+        self.filter_calls.append(kwargs)
+        if self.filter_error is not None:
+            raise self.filter_error
+        if self._filter_lookup is None:
+            return []
+        return list(self._filter_lookup(kwargs))
+
+
+@pytest.fixture
+def make_netbox_api():
+    """Return a factory building a fake ``pynetbox.api`` client for generators.
+
+    First materialised here for #253; the loopback / cluster / interface-label /
+    portchannel generators in :mod:`netbox_manager.main` each call
+    ``create_netbox_api()`` internally, so wire the returned object in with
+    ``monkeypatch.setattr(main, "create_netbox_api", lambda: fake_api)``.
+
+    ``make_netbox_api(...)`` returns a :class:`types.SimpleNamespace` exposing
+    exactly the three endpoints the generators read, each a
+    :class:`FakeNetBoxEndpoint` recording its calls:
+
+        dcim.devices.all(): returns ``devices``.
+        dcim.interfaces.filter(device_id=...): returns
+            ``interfaces_by_device.get(device_id, [])``.
+        extras.config_contexts.filter(clusters=...): returns
+            ``config_contexts_by_cluster.get(clusters, [])``, or raises
+            ``config_contexts_error`` when that is set.
+
+    Seed the endpoints with the ``make_device`` / ``make_interface`` /
+    ``make_cluster`` / ``make_config_context`` bags (whose attributes match what
+    each generator reads: ``device.cluster`` / ``device.position`` /
+    ``device.custom_fields`` / ``device.device_type.model``, ``interface.cable``
+    / ``interface.connected_endpoints`` with ``endpoint.device`` /
+    ``endpoint.name``, and ``ctx.name`` / ``ctx.data``). Reach into the returned
+    object (e.g. ``fake_api.dcim.interfaces.filter_calls``) to assert which
+    devices were queried. Shared with the autoconf / validation and later
+    mock-heavy #232 tiers (Tiers 6-9: #254, #255, #256, #258).
+    """
+
+    def _make(
+        *,
+        devices=None,
+        interfaces_by_device=None,
+        config_contexts_by_cluster=None,
+        config_contexts_error=None,
+    ):
+        interfaces_by_device = interfaces_by_device or {}
+        config_contexts_by_cluster = config_contexts_by_cluster or {}
+        return SimpleNamespace(
+            dcim=SimpleNamespace(
+                devices=FakeNetBoxEndpoint(all_result=devices),
+                interfaces=FakeNetBoxEndpoint(
+                    filter_lookup=lambda kw: interfaces_by_device.get(
+                        kw.get("device_id"), []
+                    )
+                ),
+            ),
+            extras=SimpleNamespace(
+                config_contexts=FakeNetBoxEndpoint(
+                    filter_lookup=lambda kw: config_contexts_by_cluster.get(
+                        kw.get("clusters"), []
+                    ),
+                    filter_error=config_contexts_error,
+                ),
+            ),
+        )
+
+    return _make
 
 
 @pytest.fixture
