@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
+import datetime
 import os
 from types import SimpleNamespace
 
@@ -45,9 +46,11 @@ os.environ.pop("NETBOX_MANAGER_SWITCH_ROLES", None)
 # and the raisable `pynetbox.RequestError` factory (`make_request_error`) -- come
 # next. The validation shape factories `make_vrf` / `make_ip_address` (Tier 7,
 # #255) -- feeding the read-only `validate_ip_addresses_have_prefixes` /
-# `validate_vrf_consistency` helpers --
-# close the file. The remaining heavy seams (`git.Repo`, `subprocess`) belong to
-# later #232 tiers.
+# `validate_vrf_consistency` helpers -- follow. The archive / environment seams
+# (Tier 8, #256) -- the `mock_git`, `mock_subprocess` and `mock_platform` module
+# recorders -- close the file. `tarfile` is deliberately left unmocked: the Tier 8
+# archive tests write and read real tarballs under `tmp_path` (the option the
+# issue offers) rather than adding a conftest `tarfile.open` seam.
 
 
 @pytest.fixture
@@ -875,3 +878,142 @@ def make_ip_address():
         )
 
     return _make_ip_address
+
+
+# --- Archive / environment seams, Tier 8 (#256) ---------------------------
+#
+# ``export_archive`` / ``import_archive`` reach for ``git.Repo``, ``subprocess``
+# and ``platform.system`` (plus ``tarfile`` and the filesystem). The recorders
+# below replace those three module references on ``netbox_manager.main`` so the
+# archive helpers' branch logic (git-repo-vs-not, the ``--image`` OS gate, the
+# per-directory rsync fan-out and its failure branch) can be exercised without a
+# real git repo, rsync, or ``mkfs.ext4`` / ``e2cp``. ``tarfile`` is not mocked
+# here -- the archive tests use real tarballs under ``tmp_path``.
+
+
+class _FakeGit:
+    """Fake ``git`` module standing in for ``netbox_manager.main.git``.
+
+    ``exc`` is the **real** ``git.exc`` submodule so the helper's
+    ``except git.exc.InvalidGitRepositoryError`` clause still matches a real
+    exception instance raised through this fake. ``Repo(path)`` records ``path``
+    into ``repo_calls`` and then either raises ``repo_error`` (when a test set
+    it) or returns ``repo``.
+
+    Tests mutate two attributes per case:
+        repo_error: an exception instance to raise from ``Repo(...)`` (default
+            ``None``); set it to ``git.exc.InvalidGitRepositoryError(...)`` for
+            the not-a-repo branch or a bare ``Exception(...)`` for the
+            generic-error branch.
+        repo: the object ``Repo(...)`` returns on success -- a default happy
+            ``SimpleNamespace`` exposing exactly what ``export_archive`` reads:
+            ``head.commit.hexsha`` (a 40-char string), ``head.commit``
+            ``.committed_datetime`` (a real ``datetime.datetime`` so
+            ``.strftime(...)`` works) and ``active_branch.name``.
+    """
+
+    def __init__(self):
+        import git as _real_git
+
+        self.exc = _real_git.exc
+        self.repo_calls = []
+        self.repo_error = None
+        self.repo = SimpleNamespace(
+            head=SimpleNamespace(
+                commit=SimpleNamespace(
+                    hexsha="deadbeef" * 5,
+                    committed_datetime=datetime.datetime(2024, 3, 14, 15, 9, 26),
+                )
+            ),
+            active_branch=SimpleNamespace(name="test-branch"),
+        )
+
+    def Repo(self, path):
+        self.repo_calls.append(path)
+        if self.repo_error is not None:
+            raise self.repo_error
+        return self.repo
+
+
+@pytest.fixture
+def mock_git(monkeypatch):
+    """Replace ``main.git`` with a :class:`_FakeGit` recorder.
+
+    Drives the git-repo-vs-not split of ``export_archive`` without a real
+    repository: ``git.Repo(".")`` returns a canned commit/branch by default,
+    or raises whatever ``mock_git.repo_error`` a test assigns. See
+    :class:`_FakeGit` for the mutable ``repo`` / ``repo_error`` knobs and the
+    ``exc`` passthrough. ``main`` is imported inside the fixture to preserve the
+    env-vars-before-import discipline at the top of this module. Shared with the
+    later #232 CLI tiers (Tier 10, #258) that exercise git-backed commands.
+    """
+    from netbox_manager import main
+
+    fake = _FakeGit()
+    monkeypatch.setattr(main, "git", fake)
+    return fake
+
+
+class _FakeSubprocess:
+    """Fake ``subprocess`` module standing in for ``main.subprocess``.
+
+    Records every call so tests can assert the exact argv, and returns a
+    configurable result from ``run`` to drive the rsync success / failure
+    branches:
+        check_call_calls: list of the argv lists passed to ``check_call`` (the
+            ``mkfs.ext4`` / ``e2cp`` invocations of the ``--image`` path).
+        run_calls: list of ``(argv, kwargs)`` tuples passed to ``run`` (the
+            per-directory ``rsync`` invocations of ``import_archive``).
+        run_returncode / run_stderr: the ``returncode`` / ``stderr`` the fake
+            ``run`` result reports back (defaults ``0`` / ``""``); set
+            ``run_returncode = 1`` to drive the rsync-failure branch.
+    """
+
+    def __init__(self):
+        self.check_call_calls = []
+        self.run_calls = []
+        self.run_returncode = 0
+        self.run_stderr = ""
+
+    def check_call(self, cmd):
+        self.check_call_calls.append(cmd)
+
+    def run(self, cmd, **kwargs):
+        self.run_calls.append((cmd, kwargs))
+        return SimpleNamespace(returncode=self.run_returncode, stderr=self.run_stderr)
+
+
+@pytest.fixture
+def mock_subprocess(monkeypatch):
+    """Replace ``main.subprocess`` with a :class:`_FakeSubprocess` recorder.
+
+    ``subprocess`` is used only by the two archive helpers, so replacing the
+    whole module reference is safe. Tests assert on ``check_call_calls`` /
+    ``run_calls`` and flip ``run_returncode`` / ``run_stderr`` for the failure
+    branch. ``main`` is imported inside the fixture to preserve the
+    env-vars-before-import discipline. Shared with the later #232 CLI tiers
+    (Tier 10, #258).
+    """
+    from netbox_manager import main
+
+    fake = _FakeSubprocess()
+    monkeypatch.setattr(main, "subprocess", fake)
+    return fake
+
+
+@pytest.fixture
+def mock_platform(monkeypatch):
+    """Replace ``main.platform`` with a recorder whose ``system()`` is mutable.
+
+    Drives the ``--image`` OS gate of ``export_archive``: ``system()`` returns
+    the ``system_name`` attribute (default ``"Linux"``); set it to ``"Darwin"``
+    for the non-Linux rejection branch. ``main`` is imported inside the fixture
+    to preserve the env-vars-before-import discipline. Shared with the later
+    #232 CLI tiers (Tier 10, #258).
+    """
+    from netbox_manager import main
+
+    fake = SimpleNamespace(system_name="Linux")
+    fake.system = lambda: fake.system_name
+    monkeypatch.setattr(main, "platform", fake)
+    return fake
