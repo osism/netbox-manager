@@ -414,12 +414,7 @@ class TestUploadImages:
         calls = []
 
         def fake_patch(url, headers=None, files=None, verify=None):
-            # Close the file objects upload_images opened (it never does), so
-            # no descriptor leaks into the rest of the suite.
-            names = {}
-            for key, (basename, fileobj) in files.items():
-                names[key] = basename
-                fileobj.close()
+            names = {key: basename for key, (basename, _) in files.items()}
             calls.append(
                 {"url": url, "headers": headers, "files": names, "verify": verify}
             )
