@@ -23,8 +23,12 @@ mid-command and blind the log-message assertions; the spy also serves as the
 ``--debug`` / ``--verbose`` plumbing assertion point.
 """
 
+import signal
 from importlib import metadata
 from unittest.mock import MagicMock
+
+import pytest
+import typer
 
 from netbox_manager import main
 from netbox_manager.main import app
@@ -440,3 +444,101 @@ class TestPurgeCommand:
         assert tree.all_calls == 1
         assert "Would delete 2 IP addresses" in caplog.text
         assert all(r.delete.call_count == 0 for r in resources)
+
+
+class TestVersionCommand:
+    """Group 5 -- ``version_command`` prints and returns normally (main.py)."""
+
+    def test_prints_version_and_exits_0(self, cli_runner):
+        result = cli_runner.invoke(app, ["version"])
+
+        assert result.exit_code == 0
+        assert result.output == f"netbox-manager {VERSION}\n"
+
+    def test_returns_normally_without_typer_exit(self, capsys):
+        assert main.version_command() is None
+        assert capsys.readouterr().out == f"netbox-manager {VERSION}\n"
+
+
+class TestMainCallback:
+    """Group 5 -- ``main_callback`` no-subcommand default (main.py)."""
+
+    def test_no_subcommand_dispatches_to_run_command(
+        self, cli_runner, mock_cli_workers
+    ):
+        result = cli_runner.invoke(app, [])
+
+        assert result.exit_code == 0
+        assert mock_cli_workers.run_main.call_count == 1
+        assert mock_cli_workers.run_main.call_args.args == RUN_MAIN_DEFAULTS
+
+
+class TestMainEntrypoint:
+    """Group 5 -- ``main`` registers the SIGINT handler and runs the app."""
+
+    def test_registers_sigint_handler_and_invokes_app(self, monkeypatch):
+        signal_spy = MagicMock()
+        monkeypatch.setattr(main.signal, "signal", signal_spy)
+        app_mock = MagicMock()
+        monkeypatch.setattr(main, "app", app_mock)
+
+        main.main()
+
+        signal_spy.assert_called_once_with(signal.SIGINT, main.signal_handler_sigint)
+        app_mock.assert_called_once_with()
+
+
+class TestSignalHandlerSigint:
+    """Group 5 -- ``signal_handler_sigint`` prints and raises (main.py)."""
+
+    def test_prints_and_raises_typer_exit(self, capsys):
+        with pytest.raises(typer.Exit) as exc_info:
+            main.signal_handler_sigint(signal.SIGINT, None)
+
+        assert exc_info.value.exit_code == 0
+        assert capsys.readouterr().out == "SIGINT received. Exit.\n"
+
+
+class TestInitLogger:
+    """Group 5 -- ``init_logger`` level selection (main.py).
+
+    The real ``logger`` is replaced with a mock so the load-bearing
+    ``logger.remove()`` cannot tear down the shared caplog bridge; this also
+    exposes the sink wiring (``remove`` then ``add``) for assertion.
+    """
+
+    def test_debug_selects_debug_level(self, monkeypatch):
+        logger_mock = MagicMock()
+        monkeypatch.setattr(main, "logger", logger_mock)
+
+        main.init_logger(True)
+
+        logger_mock.remove.assert_called_once_with()
+        assert logger_mock.add.call_count == 1
+        assert logger_mock.add.call_args.args[0] is main.sys.stderr
+        assert logger_mock.add.call_args.kwargs["level"] == "DEBUG"
+
+    def test_default_selects_info_level(self, monkeypatch):
+        logger_mock = MagicMock()
+        monkeypatch.setattr(main, "logger", logger_mock)
+
+        main.init_logger(False)
+
+        logger_mock.remove.assert_called_once_with()
+        assert logger_mock.add.call_count == 1
+        assert logger_mock.add.call_args.kwargs["level"] == "INFO"
+
+
+class TestCallbackVersion:
+    """Group 5 -- ``callback_version`` eager option branches (main.py)."""
+
+    def test_true_prints_and_exits(self, capsys):
+        with pytest.raises(typer.Exit) as exc_info:
+            main.callback_version(True)
+
+        assert exc_info.value.exit_code == 0
+        assert capsys.readouterr().out == f"Version {VERSION}\n"
+
+    def test_false_is_noop(self, capsys):
+        assert main.callback_version(False) is None
+        assert capsys.readouterr().out == ""
