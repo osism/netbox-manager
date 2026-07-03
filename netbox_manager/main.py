@@ -1986,6 +1986,23 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
                         f"{connected_device.name}:{endpoint.name}"
                     )
 
+    # Track PortChannel numbers already assigned per device. The number is
+    # derived per switch pair, but a PortChannel name must be unique per device:
+    # when one switch participates in several pairs whose member interfaces
+    # extract to the same number (e.g. modular names like Ethernet3/1 and
+    # Ethernet4/1 both -> 1, or digit-less names both -> 0), the later pair would
+    # otherwise collide on the same name. Disambiguate by bumping to the next
+    # free number on that device.
+    used_portchannel_numbers: Dict[str, Set[int]] = {}
+
+    def assign_portchannel_number(device_name: str, desired: int) -> int:
+        used = used_portchannel_numbers.setdefault(device_name, set())
+        number = desired
+        while number in used:
+            number += 1
+        used.add(number)
+        return number
+
     # Process switch pairs with multiple connections in sorted order
     for switch_pair in sorted(switch_connections.keys()):
         connections = switch_connections[switch_pair]
@@ -2039,16 +2056,18 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
         switch1_port_numbers = [
             extract_portchannel_number(name) for name in switch1_interfaces
         ]
-        switch1_portchannel_number = (
-            min(switch1_port_numbers) if switch1_port_numbers else 1
+        switch1_portchannel_number = assign_portchannel_number(
+            switch1_name,
+            min(switch1_port_numbers) if switch1_port_numbers else 1,
         )
         switch1_portchannel_name = f"PortChannel{switch1_portchannel_number}"
 
         switch2_port_numbers = [
             extract_portchannel_number(name) for name in switch2_interfaces
         ]
-        switch2_portchannel_number = (
-            min(switch2_port_numbers) if switch2_port_numbers else 1
+        switch2_portchannel_number = assign_portchannel_number(
+            switch2_name,
+            min(switch2_port_numbers) if switch2_port_numbers else 1,
         )
         switch2_portchannel_name = f"PortChannel{switch2_portchannel_number}"
 

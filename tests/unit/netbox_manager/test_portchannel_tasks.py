@@ -239,6 +239,151 @@ def test_portchannel_number_zero_when_no_digits(
     assert lag_names == {("sw-a", "PortChannel0"), ("sw-b", "PortChannel0")}
 
 
+def _lag_names_for(tasks, device):
+    """Return the sorted PortChannel names of LAG-creation tasks on ``device``."""
+    return sorted(
+        t["device_interface"]["name"]
+        for t in tasks
+        if t["device_interface"].get("type") == "lag"
+        and t["device_interface"]["device"] == device
+    )
+
+
+def test_shared_switch_colliding_slashed_names_get_distinct_lags(
+    roles, monkeypatch, make_netbox_api, make_device, make_interface
+):
+    # sw-c sits in two pairs. Arista/Dell modular naming makes both pairs'
+    # members on sw-c extract to the same second number (1), so the per-pair
+    # numbering wants PortChannel1 on sw-c twice -- a name collision on one
+    # device. The two LAGs must instead be disambiguated to distinct names.
+    sw_a = make_device(name="sw-a", role_slug="leaf", device_id=1)
+    sw_b = make_device(name="sw-b", role_slug="leaf", device_id=2)
+    sw_c = make_device(name="sw-c", role_slug="leaf", device_id=3)
+    a1 = _iface(make_interface, device=sw_a, name="Ethernet1", interface_id=101)
+    a2 = _iface(make_interface, device=sw_a, name="Ethernet2", interface_id=102)
+    b1 = _iface(make_interface, device=sw_b, name="Ethernet1", interface_id=201)
+    b2 = _iface(make_interface, device=sw_b, name="Ethernet2", interface_id=202)
+    c_a1 = _iface(make_interface, device=sw_c, name="Ethernet3/1", interface_id=331)
+    c_a2 = _iface(make_interface, device=sw_c, name="Ethernet3/2", interface_id=332)
+    c_b1 = _iface(make_interface, device=sw_c, name="Ethernet4/1", interface_id=341)
+    c_b2 = _iface(make_interface, device=sw_c, name="Ethernet4/2", interface_id=342)
+    _link(a1, c_a1)
+    _link(a2, c_a2)
+    _link(b1, c_b1)
+    _link(b2, c_b2)
+    _wire(
+        monkeypatch,
+        make_netbox_api,
+        devices=[sw_a, sw_b, sw_c],
+        interfaces_by_device={
+            1: [a1, a2],
+            2: [b1, b2],
+            3: [c_a1, c_a2, c_b1, c_b2],
+        },
+    )
+
+    tasks = main._generate_portchannel_tasks()
+
+    # Pairs are processed in sorted order: (sw-a, sw-c) keeps the natural
+    # PortChannel1; (sw-b, sw-c) collides and is bumped to PortChannel2. Each
+    # peer keeps its own independent PortChannel1.
+    assert tasks == [
+        _lag_task("sw-a", "PortChannel1"),
+        _lag_task("sw-b", "PortChannel1"),
+        _lag_task("sw-c", "PortChannel1"),
+        _lag_task("sw-c", "PortChannel2"),
+        _member_task("sw-a", "Ethernet1", "PortChannel1"),
+        _member_task("sw-a", "Ethernet2", "PortChannel1"),
+        _member_task("sw-b", "Ethernet1", "PortChannel1"),
+        _member_task("sw-b", "Ethernet2", "PortChannel1"),
+        _member_task("sw-c", "Ethernet3/1", "PortChannel1"),
+        _member_task("sw-c", "Ethernet3/2", "PortChannel1"),
+        _member_task("sw-c", "Ethernet4/1", "PortChannel2"),
+        _member_task("sw-c", "Ethernet4/2", "PortChannel2"),
+    ]
+
+
+def test_shared_switch_colliding_cisco_names_get_distinct_lags(
+    roles, monkeypatch, make_netbox_api, make_device, make_interface
+):
+    # Cisco stackable naming: the second number is the (identical) linecard
+    # index 0, so both pairs on sw-c want PortChannel0. They must resolve to two
+    # distinct names.
+    sw_a = make_device(name="sw-a", role_slug="leaf", device_id=1)
+    sw_b = make_device(name="sw-b", role_slug="leaf", device_id=2)
+    sw_c = make_device(name="sw-c", role_slug="leaf", device_id=3)
+    a1 = _iface(make_interface, device=sw_a, name="Ethernet1", interface_id=101)
+    a2 = _iface(make_interface, device=sw_a, name="Ethernet2", interface_id=102)
+    b1 = _iface(make_interface, device=sw_b, name="Ethernet1", interface_id=201)
+    b2 = _iface(make_interface, device=sw_b, name="Ethernet2", interface_id=202)
+    c_a1 = _iface(
+        make_interface, device=sw_c, name="GigabitEthernet1/0/1", interface_id=311
+    )
+    c_a2 = _iface(
+        make_interface, device=sw_c, name="GigabitEthernet1/0/2", interface_id=312
+    )
+    c_b1 = _iface(
+        make_interface, device=sw_c, name="GigabitEthernet2/0/1", interface_id=321
+    )
+    c_b2 = _iface(
+        make_interface, device=sw_c, name="GigabitEthernet2/0/2", interface_id=322
+    )
+    _link(a1, c_a1)
+    _link(a2, c_a2)
+    _link(b1, c_b1)
+    _link(b2, c_b2)
+    _wire(
+        monkeypatch,
+        make_netbox_api,
+        devices=[sw_a, sw_b, sw_c],
+        interfaces_by_device={
+            1: [a1, a2],
+            2: [b1, b2],
+            3: [c_a1, c_a2, c_b1, c_b2],
+        },
+    )
+
+    tasks = main._generate_portchannel_tasks()
+
+    assert _lag_names_for(tasks, "sw-c") == ["PortChannel0", "PortChannel1"]
+
+
+def test_shared_switch_colliding_digitless_names_get_distinct_lags(
+    roles, monkeypatch, make_netbox_api, make_device, make_interface
+):
+    # The review's literal case, now actually shared on one switch: digit-less
+    # names all extract to 0, so both pairs on sw-c want PortChannel0.
+    sw_a = make_device(name="sw-a", role_slug="leaf", device_id=1)
+    sw_b = make_device(name="sw-b", role_slug="leaf", device_id=2)
+    sw_c = make_device(name="sw-c", role_slug="leaf", device_id=3)
+    a1 = _iface(make_interface, device=sw_a, name="Ethernet1", interface_id=101)
+    a2 = _iface(make_interface, device=sw_a, name="Ethernet2", interface_id=102)
+    b1 = _iface(make_interface, device=sw_b, name="Ethernet1", interface_id=201)
+    b2 = _iface(make_interface, device=sw_b, name="Ethernet2", interface_id=202)
+    c_a1 = _iface(make_interface, device=sw_c, name="uplinkA", interface_id=311)
+    c_a2 = _iface(make_interface, device=sw_c, name="uplinkB", interface_id=312)
+    c_b1 = _iface(make_interface, device=sw_c, name="uplinkC", interface_id=321)
+    c_b2 = _iface(make_interface, device=sw_c, name="uplinkD", interface_id=322)
+    _link(a1, c_a1)
+    _link(a2, c_a2)
+    _link(b1, c_b1)
+    _link(b2, c_b2)
+    _wire(
+        monkeypatch,
+        make_netbox_api,
+        devices=[sw_a, sw_b, sw_c],
+        interfaces_by_device={
+            1: [a1, a2],
+            2: [b1, b2],
+            3: [c_a1, c_a2, c_b1, c_b2],
+        },
+    )
+
+    tasks = main._generate_portchannel_tasks()
+
+    assert _lag_names_for(tasks, "sw-c") == ["PortChannel0", "PortChannel1"]
+
+
 def test_lag_tasks_precede_members_each_sorted_by_device_and_name(
     roles, monkeypatch, make_netbox_api, make_device, make_interface
 ):
