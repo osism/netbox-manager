@@ -54,6 +54,42 @@ RUN_MAIN_DEFAULTS = (
 )
 
 
+class _FakeResource:
+    """A single purge target: a real ``name`` plus a spy ``delete``.
+
+    ``get_resource_name`` (main.py) reads ``name`` off the resource, so it must
+    be a real attribute (a bare ``MagicMock`` would not satisfy the ``name``
+    lookup). ``delete`` is a spy the tests assert was never called in dry-run.
+    """
+
+    def __init__(self, name):
+        self.name = name
+        self.delete = MagicMock()
+
+
+class _FakePurgeTree:
+    """Stand-in for the ``pynetbox.api(...)`` client used by ``purge_command``.
+
+    ``purge_command`` resolves each endpoint with a two-level ``getattr``
+    traversal (e.g. ``api.ipam.ip_addresses``); ``__getattr__`` returns ``self``
+    so any dotted path collapses back to this tree. ``all()`` records how many
+    times it was reached (``all_calls``) and returns the canned resources, which
+    lets the ``--limit`` narrowing tests assert on the number of endpoints
+    actually visited.
+    """
+
+    def __init__(self, resources):
+        self._resources = resources
+        self.all_calls = 0
+
+    def __getattr__(self, name):
+        return self
+
+    def all(self):
+        self.all_calls += 1
+        return list(self._resources)
+
+
 class TestRunCommand:
     """Group 1 -- ``run_command`` option mapping and dispatch (main.py)."""
 
@@ -217,3 +253,190 @@ class TestAutoconfCommand:
 
         assert result.exit_code == 1
         assert "Error generating autoconf" in caplog.text
+
+
+class TestValidateCommand:
+    """Group 3 -- ``validate_command`` check dispatch and exit codes (main.py)."""
+
+    def test_check_ip_prefixes_runs_only_ip_check(self, cli_runner, mock_cli_workers):
+        result = cli_runner.invoke(app, ["validate", "--check", "ip-prefixes"])
+
+        assert result.exit_code == 0
+        assert mock_cli_workers.validate_ip_addresses_have_prefixes.call_count == 1
+        assert mock_cli_workers.validate_ip_addresses_have_prefixes.call_args.args == (
+            mock_cli_workers.create_netbox_api.return_value,
+            False,
+        )
+        mock_cli_workers.validate_vrf_consistency.assert_not_called()
+
+    def test_check_vrf_consistency_runs_only_vrf_check(
+        self, cli_runner, mock_cli_workers
+    ):
+        result = cli_runner.invoke(app, ["validate", "--check", "vrf-consistency"])
+
+        assert result.exit_code == 0
+        assert mock_cli_workers.validate_vrf_consistency.call_count == 1
+        assert mock_cli_workers.validate_vrf_consistency.call_args.args == (
+            mock_cli_workers.create_netbox_api.return_value,
+            False,
+        )
+        mock_cli_workers.validate_ip_addresses_have_prefixes.assert_not_called()
+
+    def test_no_check_runs_both_and_exits_0_on_pass(
+        self, cli_runner, mock_cli_workers, caplog
+    ):
+        result = cli_runner.invoke(app, ["validate"])
+
+        assert result.exit_code == 0
+        assert mock_cli_workers.validate_ip_addresses_have_prefixes.call_count == 1
+        assert mock_cli_workers.validate_vrf_consistency.call_count == 1
+        # The inner ``typer.Exit(0)`` must escape the ``except typer.Exit:
+        # raise`` guard, not get mangled to exit 1 by the generic handler.
+        assert "Error during validation" not in caplog.text
+
+    def test_invalid_check_exits_1_before_any_worker(
+        self, cli_runner, mock_cli_workers, caplog
+    ):
+        result = cli_runner.invoke(app, ["validate", "--check", "foo"])
+
+        assert result.exit_code == 1
+        assert "Invalid check(s): foo" in caplog.text
+        mock_cli_workers.create_netbox_api.assert_not_called()
+        mock_cli_workers.validate_ip_addresses_have_prefixes.assert_not_called()
+        mock_cli_workers.validate_vrf_consistency.assert_not_called()
+
+    def test_ip_findings_exit_1(self, cli_runner, mock_cli_workers, caplog):
+        mock_cli_workers.validate_ip_addresses_have_prefixes.return_value = (
+            False,
+            [
+                {
+                    "address": "10.0.0.5/32",
+                    "vrf": "Global",
+                    "device": "node-0",
+                    "interface": "eth0",
+                    "assigned_object": "node-0",
+                    "reason": "No matching prefix found in same VRF",
+                }
+            ],
+        )
+
+        result = cli_runner.invoke(app, ["validate", "--check", "ip-prefixes"])
+
+        assert result.exit_code == 1
+        assert "IP-Prefix Check FAILED" in caplog.text
+
+    def test_vrf_findings_exit_1(self, cli_runner, mock_cli_workers, caplog):
+        mock_cli_workers.validate_vrf_consistency.return_value = (
+            False,
+            [
+                {
+                    "ip_address": "10.0.0.5/32",
+                    "ip_vrf": "red",
+                    "device": "node-0",
+                    "interface": "eth0",
+                    "interface_vrf": "blue",
+                    "reason": "VRF mismatch",
+                }
+            ],
+        )
+
+        result = cli_runner.invoke(app, ["validate", "--check", "vrf-consistency"])
+
+        assert result.exit_code == 1
+        assert "VRF Consistency Check FAILED" in caplog.text
+
+    def test_worker_request_error_exits_1(
+        self, cli_runner, mock_cli_workers, caplog, make_request_error
+    ):
+        mock_cli_workers.validate_ip_addresses_have_prefixes.side_effect = (
+            make_request_error()
+        )
+
+        result = cli_runner.invoke(app, ["validate", "--check", "ip-prefixes"])
+
+        assert result.exit_code == 1
+        assert "NetBox API error" in caplog.text
+
+    def test_worker_generic_error_exits_1(self, cli_runner, mock_cli_workers, caplog):
+        mock_cli_workers.validate_ip_addresses_have_prefixes.side_effect = RuntimeError(
+            "kaput"
+        )
+
+        result = cli_runner.invoke(app, ["validate", "--check", "ip-prefixes"])
+
+        assert result.exit_code == 1
+        assert "Error during validation" in caplog.text
+
+
+class TestPurgeCommand:
+    """Group 4 -- ``purge_command`` dry-run / confirmation gate (main.py).
+
+    Only the dry-run and confirmation gates are covered here; the real
+    destructive deletion path is out of scope for this tier. Every test asserts
+    the deletion worker recorded zero destructive calls.
+    """
+
+    def test_dryrun_skips_confirm_and_never_deletes(
+        self, cli_runner, mock_cli_workers, caplog, monkeypatch
+    ):
+        resources = [_FakeResource("a"), _FakeResource("b")]
+        tree = _FakePurgeTree(resources)
+        monkeypatch.setattr(main.pynetbox, "api", lambda *a, **k: tree)
+        confirm_spy = MagicMock()
+        monkeypatch.setattr(main.typer, "confirm", confirm_spy)
+
+        result = cli_runner.invoke(app, ["purge", "--dryrun"])
+
+        assert result.exit_code == 0
+        confirm_spy.assert_not_called()
+        assert all(r.delete.call_count == 0 for r in resources)
+        assert "Dry run complete - no resources were deleted" in caplog.text
+
+    def test_declined_confirmation_cancels_before_api_construction(
+        self, cli_runner, mock_cli_workers, caplog, monkeypatch
+    ):
+        monkeypatch.setattr(main.typer, "confirm", lambda *a, **k: False)
+        api_factory = MagicMock()
+        monkeypatch.setattr(main.pynetbox, "api", api_factory)
+
+        result = cli_runner.invoke(app, ["purge"])
+
+        assert result.exit_code == 0
+        assert "Purge cancelled by user" in caplog.text
+        # The client is only built *after* the confirmation gate, so declining
+        # leaves the destructive path unreachable.
+        api_factory.assert_not_called()
+
+    def test_unknown_limit_exits_1(
+        self, cli_runner, mock_cli_workers, caplog, monkeypatch
+    ):
+        resources = [_FakeResource("a"), _FakeResource("b")]
+        tree = _FakePurgeTree(resources)
+        monkeypatch.setattr(main.pynetbox, "api", lambda *a, **k: tree)
+
+        result = cli_runner.invoke(
+            app, ["purge", "--dryrun", "--limit", "does-not-exist"]
+        )
+
+        assert result.exit_code == 1
+        assert "No resource type matching 'does-not-exist' found" in caplog.text
+        assert tree.all_calls == 0
+        assert all(r.delete.call_count == 0 for r in resources)
+
+    def test_matching_limit_narrows_order(
+        self, cli_runner, mock_cli_workers, caplog, monkeypatch
+    ):
+        resources = [_FakeResource("10.0.0.1/32"), _FakeResource("10.0.0.2/32")]
+        tree = _FakePurgeTree(resources)
+        monkeypatch.setattr(main.pynetbox, "api", lambda *a, **k: tree)
+
+        result = cli_runner.invoke(
+            app, ["purge", "--dryrun", "--limit", "ip-addresses"]
+        )
+
+        assert result.exit_code == 0
+        # ``ip-addresses`` matches exactly one entry (ipam.ip_addresses), so the
+        # traversal reaches ``all()`` once.
+        assert tree.all_calls == 1
+        assert "Would delete 2 IP addresses" in caplog.text
+        assert all(r.delete.call_count == 0 for r in resources)
