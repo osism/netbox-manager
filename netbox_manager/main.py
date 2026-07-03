@@ -1143,6 +1143,73 @@ def export_archive(
         raise typer.Exit(1)
 
 
+# Ceilings for _safe_extractall's decompression-bomb guard. Both are generous
+# for a real netbox-export archive (YAML config directories); adjust here if a
+# legitimate export ever approaches them.
+_MAX_EXTRACT_BYTES = 10 * 1024**3  # 10 GiB decompressed
+_MAX_EXTRACT_MEMBERS = 100_000
+
+
+def _safe_extractall(tar: tarfile.TarFile, path: str) -> None:
+    """Extract ``tar`` into ``path`` without letting members escape it.
+
+    Guards against CVE-2007-4559: a crafted archive whose member names use
+    ``../`` or absolute paths (or point outside via symlinks) can otherwise
+    write anywhere the process can reach. Prefers the ``data`` extraction
+    filter (PEP 706) and falls back to an explicit destination check on
+    interpreters that predate it.
+
+    Also bounds the member count and cumulative decompressed size so a
+    decompression bomb (a few-MB gzip expanding to hundreds of GB or to
+    millions of members) cannot exhaust the extraction filesystem or buffer
+    an unbounded member index into memory. Headers are streamed lazily and
+    the ceilings checked before extraction, so an oversized archive is
+    rejected before any of its data is written.
+    """
+    total_bytes = 0
+    for count, member in enumerate(tar, start=1):
+        if count > _MAX_EXTRACT_MEMBERS:
+            raise tarfile.TarError(
+                f"Archive exceeds member cap of {_MAX_EXTRACT_MEMBERS}"
+            )
+        total_bytes += member.size
+        if total_bytes > _MAX_EXTRACT_BYTES:
+            raise tarfile.TarError(
+                "Archive exceeds decompressed-size cap of "
+                f"{_MAX_EXTRACT_BYTES} bytes"
+            )
+
+    if hasattr(tarfile, "data_filter"):
+        tar.extractall(path, filter="data")
+        return
+
+    base = os.path.abspath(path)
+    for member in tar.getmembers():
+        target = os.path.abspath(os.path.join(base, member.name))
+        if os.path.commonpath([base, target]) != base:
+            raise tarfile.TarError(
+                f"Blocked path traversal in tar member: {member.name}"
+            )
+        if member.issym() or member.islnk():
+            # Link targets must also stay within ``base``: a link pointing
+            # outside lets a later member be written through it and escape the
+            # extraction root. A hardlink target is resolved relative to the
+            # archive root; a symlink target relative to the link's directory.
+            if member.islnk():
+                link_target = os.path.join(base, member.linkname)
+            else:
+                link_target = os.path.join(
+                    base, os.path.dirname(member.name), member.linkname
+                )
+            link_target = os.path.abspath(link_target)
+            if os.path.commonpath([base, link_target]) != base:
+                raise tarfile.TarError(
+                    "Blocked link traversal in tar member: "
+                    f"{member.name} -> {member.linkname}"
+                )
+    tar.extractall(path)
+
+
 @app.command(
     name="import-archive",
     help="Import and sync content from a netbox-export.tar.gz file",
@@ -1174,7 +1241,7 @@ def import_archive(
         try:
             logger.info(f"Extracting {input_file} to temporary directory")
             with tarfile.open(input_file, "r:gz") as tar:
-                tar.extractall(temp_dir)
+                _safe_extractall(tar, temp_dir)
 
             # Process each extracted directory
             for item in os.listdir(temp_dir):
