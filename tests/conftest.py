@@ -41,8 +41,11 @@ os.environ.pop("NETBOX_MANAGER_SWITCH_ROLES", None)
 # fake `pynetbox.api` client (`make_dtl_api`), the `tmp_path` library-tree
 # builder (`make_dtl_tree`), the `LogHandler` call-through spy
 # (`dtl_log_handler`) and the raisable `pynetbox.RequestError` factory
-# (`make_request_error`) -- close the file. The remaining heavy seams
-# (`git.Repo`, `subprocess`) belong to later #232 tiers.
+# (`make_request_error`) -- come next. The validation shape factories
+# `make_vrf` / `make_ip_address` (Tier 7, #255) -- feeding the read-only
+# `validate_ip_addresses_have_prefixes` / `validate_vrf_consistency` helpers --
+# close the file. The remaining heavy seams (`git.Repo`, `subprocess`) belong to
+# later #232 tiers.
 
 
 @pytest.fixture
@@ -723,11 +726,13 @@ def make_request_error():
     """Return a factory building a raisable ``pynetbox.RequestError``.
 
     ``make_request_error(message="boom")`` constructs the exception via
-    ``RequestError.__new__`` and sets ``.error`` directly, deliberately
-    bypassing the real ``__init__`` (which requires a live ``requests.Response``
-    object). ``.error`` is the only attribute ``dtl.py`` reads off a caught
-    ``RequestError``, and the instance is still caught by
-    ``except pynetbox.RequestError``. Set it as a ``FakeDtlEndpoint``'s
+    ``RequestError.__new__`` and sets ``.error`` / ``.message`` directly,
+    deliberately bypassing the real ``__init__`` (which requires a live
+    ``requests.Response`` object). ``.error`` is what ``dtl.py`` reads off a
+    caught ``RequestError``; ``.message`` backs ``RequestError.__str__`` so the
+    ``main.py`` validators (Tier 7, #255) can ``logger.error(f"... {e}")`` before
+    re-raising without tripping over the unset attribute. The instance is still
+    caught by ``except pynetbox.RequestError``. Set it as a ``FakeDtlEndpoint``'s
     ``create_error`` to drive the error branches. Shared with later #232 tiers
     that assert error propagation.
     """
@@ -737,6 +742,49 @@ def make_request_error():
         error = pynetbox.RequestError.__new__(pynetbox.RequestError)
         Exception.__init__(error, message)
         error.error = message
+        error.message = message
         return error
 
     return _make
+
+
+@pytest.fixture
+def make_vrf():
+    """Build VRF-like attribute bags for the validation helpers.
+
+    Returns a factory producing a :class:`types.SimpleNamespace` that exposes
+    only ``id`` and ``name`` -- the two attributes
+    :func:`netbox_manager.main.validate_ip_addresses_have_prefixes` and
+    :func:`netbox_manager.main.validate_vrf_consistency` read off a VRF (the IP's
+    ``vrf`` and the interface's ``vrf``): ``id`` drives the ``vrf_id`` prefix
+    filter and the VRF-equality comparison, ``name`` fills the ``vrf`` /
+    ``ip_vrf`` / ``interface_vrf`` finding fields. Shared with later #232 tiers
+    that build pynetbox IP / interface shapes.
+    """
+
+    def _make_vrf(*, id=1, name="vrf-red"):
+        return SimpleNamespace(id=id, name=name)
+
+    return _make_vrf
+
+
+@pytest.fixture
+def make_ip_address():
+    """Build IP-address-like attribute bags for the validation helpers.
+
+    Returns a factory producing a :class:`types.SimpleNamespace` that exposes
+    only the attributes the read-only validators in
+    :mod:`netbox_manager.main` read off a pynetbox IP record -- ``address`` (the
+    string parsed by ``ipaddress.ip_network``), ``vrf`` (a ``make_vrf`` bag or
+    ``None`` for the global routing table) and ``assigned_object`` (the
+    device-interface bag or ``None`` when unassigned). The assigned-object bag is
+    passed in pre-built by the test so the factory stays flat. Shared with later
+    #232 tiers that build pynetbox IP shapes.
+    """
+
+    def _make_ip_address(*, address="192.168.16.10/32", vrf=None, assigned_object=None):
+        return SimpleNamespace(
+            address=address, vrf=vrf, assigned_object=assigned_object
+        )
+
+    return _make_ip_address
