@@ -341,6 +341,7 @@ class NetBox:
                     self.handle.log(
                         f"Error '{exce.error}' creating module type: " + f"{curr_mt}"
                     )
+                    continue
 
             if "interfaces" in curr_mt:
                 self.device_types.create_module_interfaces(
