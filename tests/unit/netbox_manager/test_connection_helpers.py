@@ -15,7 +15,8 @@ Two small helpers in ``netbox_manager.main`` bridge to NetBox:
 The validator tests replace ``main.settings`` wholesale with a
 ``SimpleNamespace`` recorder -- the helper reads nothing else off settings, so
 this avoids depending on dynaconf's ``validators`` internals -- and raise the
-**real** ``dynaconf.ValidationError``. The api tests patch ``main.pynetbox.api``
+**real** ``dynaconf.ValidationError`` via ``main.ValidationError`` (the exact
+class the helper's ``except`` matches). The api tests patch ``main.pynetbox.api``
 with a call recorder and monkeypatch the individual settings keys. Neither
 helper calls ``init_logger()``, so the conftest loguru->``caplog`` bridge
 survives and the error-log assertion can use ``caplog``.
@@ -23,7 +24,6 @@ survives and the error-log assertion can use ``caplog``.
 
 from types import SimpleNamespace
 
-import dynaconf
 import pytest
 import typer
 
@@ -86,7 +86,7 @@ class TestValidateNetboxConnection:
         assert validators.validate_all_calls == 1
 
     def test_validate_error_exits_with_default_code(self, monkeypatch, caplog):
-        error = dynaconf.ValidationError("boom", details=[("TOKEN", "must be str")])
+        error = main.ValidationError("boom", details=[("TOKEN", "must be str")])
         validators = _RecordingValidators(error=error)
         monkeypatch.setattr(main, "settings", SimpleNamespace(validators=validators))
 
