@@ -4,9 +4,9 @@
 
 ``netbox_manager.main.validate_ip_addresses_have_prefixes`` is a read-only
 validator: it pulls every IP via ``ipam.ip_addresses.all()``, parses each
-address with ``ipaddress.ip_network(..., strict=False)`` and looks for a
-containing prefix in the same VRF through ``ipam.prefixes.filter(...)``. It
-returns ``(validation_passed, orphaned_ips)`` and never writes back to NetBox.
+address with ``ipaddress.ip_interface(...)`` and looks for a prefix containing
+that host IP in the same VRF through ``ipam.prefixes.filter(...)``. It returns
+``(validation_passed, orphaned_ips)`` and never writes back to NetBox.
 
 The helper takes the ``pynetbox.api`` client as a parameter, so these tests hand
 it a flat :class:`types.SimpleNamespace` bag exposing only the two endpoints it
@@ -122,8 +122,8 @@ class TestValidateIpAddressesHavePrefixes:
         assert orphans[0]["vrf"] == "red"
 
     def test_global_query_uses_null_vrf(self, make_ip_address):
-        # strict=False keeps a host-bearing address parseable; the query keys on
-        # the derived network_address (10.0.0.5/24 -> 10.0.0.0).
+        # The query keys on the host IP, not its network base (10.0.0.5/24 ->
+        # 10.0.0.5), so a smaller covering prefix can't false-pass an orphan.
         ip = make_ip_address(address="10.0.0.5/24", vrf=None)
         prefix_filter = Mock(return_value=[])
         api = _api(all_ips=Mock(return_value=[ip]), prefix_filter=prefix_filter)
@@ -131,7 +131,7 @@ class TestValidateIpAddressesHavePrefixes:
         passed, orphans = main.validate_ip_addresses_have_prefixes(api)
 
         assert passed is False
-        prefix_filter.assert_called_once_with(contains="10.0.0.0", vrf_id="null")
+        prefix_filter.assert_called_once_with(contains="10.0.0.5", vrf_id="null")
         assert orphans[0]["vrf"] == "Global"
 
     def test_assigned_object_populates_device_and_interface(
