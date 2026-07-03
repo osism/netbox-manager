@@ -33,6 +33,9 @@ os.environ.pop("NETBOX_MANAGER_SWITCH_ROLES", None)
 # client (`make_netbox_api`, backed by `FakeNetBoxEndpoint`) that the loopback /
 # cluster / interface-label / portchannel generators query -- follow, alongside
 # the `make_device` / `make_interface` keyword extensions those generators read.
+# Tier 6 (#254) extends the same two factories with the `id` / `name` /
+# `mac_address` / `mac_addresses` attributes the autoconf collectors read and
+# adds the `make_autoconf_api` fake `pynetbox.api` client for those collectors.
 # Next come the heavier `mock_ansible_runner` recorder and the loguru->`caplog`
 # bridge (Tier 4, #252). The Device Type Library seams (Tier 9, #257) -- the
 # fake `pynetbox.api` client (`make_dtl_api`), the `tmp_path` library-tree
@@ -48,19 +51,23 @@ def make_device():
 
     Returns a factory producing a :class:`types.SimpleNamespace` that exposes
     only the attributes the helpers in :mod:`netbox_manager.main` read from a
-    pynetbox device -- ``name``, ``role`` (with ``slug`` / ``name``),
+    pynetbox device -- ``id``, ``name``, ``role`` (with ``slug`` / ``name``),
     ``device_type`` (with ``model``) and ``custom_fields``. No live NetBox or
     full ``pynetbox`` mock is involved.
 
     Keyword arguments of the factory:
         name: Device name.
+        device_id: ``device.id``. The Tier 5 generators pass it as
+            ``dcim.interfaces.filter(device_id=...)`` and
+            ``_generate_autoconf_tasks`` (Tier 6, #254) uses it as the key of its
+            device dicts; defaults to ``None`` since the Tier 1 pure-logic helpers
+            never read it. Give distinct ids to devices that must coexist in one
+            ``all_devices_dict``.
         role_slug / role_name: Attributes for ``device.role``; when both are
             omitted ``device.role`` is ``None`` (an unset role).
         device_type_model: ``model`` for ``device.device_type``; when omitted
             ``device.device_type`` is ``None``.
         custom_fields: Mapping for ``device.custom_fields`` (defaults to ``{}``).
-        device_id: ``device.id`` -- the value the generators pass as
-            ``dcim.interfaces.filter(device_id=...)`` (defaults to ``None``).
         cluster: ``device.cluster`` -- a ``make_cluster`` object (or ``None``,
             the default, for a device with no cluster). Always present as an
             attribute so ``_generate_cluster_loopback_tasks``' direct
@@ -68,20 +75,21 @@ def make_device():
         position: ``device.position`` -- the rack position
             ``calculate_loopback_ips`` reads (defaults to ``None``).
 
-    The Tier 5 generator tests (#253) read ``id`` / ``cluster`` / ``position``;
-    the Tier 1 helper tests (#247) predate them and pass none of the three, so
-    every one is keyword-only with a benign default. Shared with later #232 test
-    tiers; extend it here rather than re-deriving device shapes per test module.
+    The Tier 5 generator tests (#253) read ``id`` / ``cluster`` / ``position``
+    and the Tier 6 autoconf tests (#254) read ``id``; the Tier 1 helper tests
+    (#247) predate them and pass none of the three, so every one is keyword-only
+    with a benign default. Shared with later #232 test tiers; extend it here
+    rather than re-deriving device shapes per test module.
     """
 
     def _make_device(
         *,
         name="test-device",
+        device_id=None,
         role_slug=None,
         role_name=None,
         device_type_model=None,
         custom_fields=None,
-        device_id=None,
         cluster=None,
         position=None,
     ):
@@ -101,11 +109,11 @@ def make_device():
         )
 
         return SimpleNamespace(
+            id=device_id,
             name=name,
             role=role,
             device_type=device_type,
             custom_fields={} if custom_fields is None else custom_fields,
-            id=device_id,
             cluster=cluster,
             position=position,
         )
@@ -121,15 +129,20 @@ def make_interface():
     ``type`` (with ``value`` / ``label``, all
     :func:`netbox_manager.main.is_virtual_interface` reads) plus the attributes
     the Tier 5 generators (#253) read off a ``dcim.interfaces.filter(...)``
-    record. When neither ``type_value`` nor ``type_label`` is given, ``type`` is
-    ``None``.
+    record and the ``id`` / ``name`` / ``mac_address`` / ``mac_addresses``
+    attributes the Tier 6 (#254) autoconf collectors read. When neither
+    ``type_value`` nor ``type_label`` is given, ``type`` is ``None``.
 
     Keyword arguments of the factory:
-        type_value / type_label: Attributes for ``interface.type``.
+        type_value / type_label: Attributes for ``interface.type``; when both
+            are omitted ``interface.type`` is ``None``.
         name: ``interface.name`` -- the port name emitted into label / member
-            tasks and read off a connected endpoint (defaults to ``None``).
+            tasks and read off a connected endpoint, and the value
+            ``collect_ip_assignments_by_interface`` filters on (defaults to
+            ``None``).
         interface_id: ``interface.id`` -- the identity the PortChannel dedup
-            matches connections on (defaults to ``None``).
+            matches connections on and the ``assigned_object_id`` the IP lookup
+            keys on (defaults to ``None``).
         cable: ``interface.cable`` -- a truthy value marks the port cabled;
             ``None`` (the default) exercises the not-cabled skip branch.
         connected_endpoints: ``interface.connected_endpoints`` -- a list of
@@ -140,6 +153,11 @@ def make_interface():
             interface used as a connected endpoint so the generator can read the
             far-side device back off it (mirrors a real NetBox record); ``None``
             (the default) exercises the endpoint-without-device skip branch.
+        mac_address: The direct MAC ``collect_interface_assignments`` prefers.
+        mac_addresses: The fallback list of records with a ``mac_address``
+            attribute (build entries inline as
+            ``SimpleNamespace(mac_address=...)``); defaults to ``[]`` so the
+            falsy check in the collector works without a guard.
 
     Shared with later #232 test tiers.
     """
@@ -153,6 +171,8 @@ def make_interface():
         cable=None,
         connected_endpoints=None,
         device=None,
+        mac_address=None,
+        mac_addresses=None,
     ):
         if type_value is None and type_label is None:
             interface_type = None
@@ -169,6 +189,8 @@ def make_interface():
             cable=cable,
             connected_endpoints=connected_endpoints,
             device=device,
+            mac_address=mac_address,
+            mac_addresses=[] if mac_addresses is None else mac_addresses,
         )
 
     return _make_interface
@@ -307,6 +329,66 @@ def make_netbox_api():
                     ),
                     filter_error=config_contexts_error,
                 ),
+            ),
+        )
+
+    return _make
+
+
+@pytest.fixture
+def make_autoconf_api():
+    """Return a factory building a fake ``pynetbox.api`` client for autoconf.
+
+    ``make_autoconf_api(devices=..., interfaces_by_device=..., ips_by_interface=...)``
+    returns a :class:`types.SimpleNamespace` exposing exactly the three read-only
+    endpoints the Tier 6 (#254) autoconf collectors touch:
+
+        dcim.devices.all() -> ``list(devices)`` (what ``_generate_autoconf_tasks``
+            loads before splitting switches from non-switches).
+        dcim.interfaces.filter(device_id, name=None) ->
+            ``interfaces_by_device[device_id]``, additionally narrowed to the
+            interfaces whose ``name`` matches when ``name`` is passed (the
+            ``eth0`` / ``Loopback0`` lookups in
+            ``collect_ip_assignments_by_interface``).
+        ipam.ip_addresses.filter(assigned_object_id) ->
+            ``ips_by_interface[assigned_object_id]`` (IP records are plain
+            ``SimpleNamespace(address=...)`` bags).
+
+    Arguments (all optional, defaulting to empty):
+        devices: iterable of ``make_device`` bags returned by ``devices.all()``.
+        interfaces_by_device: ``{device_id: [make_interface bag, ...]}`` keyed by
+            the ``device_id`` the collectors pass to ``interfaces.filter``.
+        ips_by_interface: ``{interface_id: [SimpleNamespace(address=...), ...]}``
+            keyed by ``interface.id``.
+
+    Inject it with ``monkeypatch.setattr(main, "create_netbox_api", lambda: api)``
+    for ``_generate_autoconf_tasks``, or pass it straight to the collectors that
+    take a ``netbox_api`` argument. Shared with the mock-heavy later tiers
+    (#255 validation adds ``ipam.prefixes`` / ``dcim.interfaces.get`` on top) --
+    extend this fixture with the extra endpoints rather than forking it.
+    """
+
+    def _make(*, devices=None, interfaces_by_device=None, ips_by_interface=None):
+        devices = list(devices or [])
+        interfaces_by_device = interfaces_by_device or {}
+        ips_by_interface = ips_by_interface or {}
+
+        def _filter_interfaces(*, device_id, name=None):
+            interfaces = list(interfaces_by_device.get(device_id, []))
+            if name is not None:
+                interfaces = [iface for iface in interfaces if iface.name == name]
+            return interfaces
+
+        def _filter_ips(*, assigned_object_id):
+            return list(ips_by_interface.get(assigned_object_id, []))
+
+        return SimpleNamespace(
+            dcim=SimpleNamespace(
+                devices=SimpleNamespace(all=lambda: list(devices)),
+                interfaces=SimpleNamespace(filter=_filter_interfaces),
+            ),
+            ipam=SimpleNamespace(
+                ip_addresses=SimpleNamespace(filter=_filter_ips),
             ),
         )
 
