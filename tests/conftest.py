@@ -37,13 +37,15 @@ os.environ.pop("NETBOX_MANAGER_SWITCH_ROLES", None)
 # `mac_address` / `mac_addresses` attributes the autoconf collectors read and
 # adds the `make_autoconf_api` fake `pynetbox.api` client for those collectors.
 # Next come the heavier `mock_ansible_runner` recorder and the loguru->`caplog`
-# bridge (Tier 4, #252). The Device Type Library seams (Tier 9, #257) -- the
-# fake `pynetbox.api` client (`make_dtl_api`), the `tmp_path` library-tree
-# builder (`make_dtl_tree`), the `LogHandler` call-through spy
-# (`dtl_log_handler`) and the raisable `pynetbox.RequestError` factory
-# (`make_request_error`) -- come next. The validation shape factories
-# `make_vrf` / `make_ip_address` (Tier 7, #255) -- feeding the read-only
-# `validate_ip_addresses_have_prefixes` / `validate_vrf_consistency` helpers --
+# bridge (Tier 4, #252). The `typer.testing.CliRunner` driver (`cli_runner`) and
+# the command worker-spy bundle (`mock_cli_workers`) for the CLI wiring smoke
+# tests (Tier 10, #258) come next. The Device Type Library seams (Tier 9, #257)
+# -- the fake `pynetbox.api` client (`make_dtl_api`), the `tmp_path` library-tree
+# builder (`make_dtl_tree`), the `LogHandler` call-through spy (`dtl_log_handler`)
+# and the raisable `pynetbox.RequestError` factory (`make_request_error`) -- come
+# next. The validation shape factories `make_vrf` / `make_ip_address` (Tier 7,
+# #255) -- feeding the read-only `validate_ip_addresses_have_prefixes` /
+# `validate_vrf_consistency` helpers --
 # close the file. The remaining heavy seams (`git.Repo`, `subprocess`) belong to
 # later #232 tiers.
 
@@ -479,6 +481,89 @@ def mock_ansible_runner(monkeypatch):
     return fake
 
 
+@pytest.fixture
+def cli_runner():
+    """Return a ``typer.testing.CliRunner`` for driving ``main.app``.
+
+    Invoke commands with an argument list --
+    ``cli_runner.invoke(app, ["run", "--dryrun"])`` -- and assert on
+    ``result.exit_code`` / ``result.output``. ``CliRunner`` is imported inside
+    the fixture body to preserve the env-vars-before-import discipline
+    established at the top of this module.
+
+    Shared with the Tier 10 (#258) command-wiring smoke tests; pair it with
+    :func:`mock_cli_workers` so no command reaches a live worker.
+    """
+    from typer.testing import CliRunner
+
+    return CliRunner()
+
+
+@pytest.fixture
+def mock_cli_workers(monkeypatch):
+    """Patch every heavy worker behind ``main``'s Typer commands with a spy.
+
+    The Tier 10 (#258) command smoke tests exercise only the ``typer`` dispatch
+    surface -- option parsing, worker dispatch, exit codes -- so each heavy
+    worker is replaced with a :class:`unittest.mock.MagicMock`. With these in
+    place the ``run`` / ``autoconf`` / ``validate`` / ``purge`` command bodies
+    run to their seams without touching NetBox, ``ansible_runner``, ``git`` or
+    the real filesystem.
+
+    ``init_logger`` is spied for two reasons. First, the real one calls
+    ``logger.remove()`` (``main.py``), which drops the conftest
+    loguru->``caplog`` bridge mid-command and would blind ``caplog``
+    assertions. Second, the spy doubles as the ``--debug`` / ``--verbose``
+    plumbing assertion point -- those flags route through ``init_logger``.
+
+    Returns a :class:`types.SimpleNamespace` exposing each spy as an attribute:
+        run_main: ``main._run_main`` (the ``run`` command's pass-through
+            target).
+        run_autoconf_for_devices: ``main._run_autoconf_for_devices``
+            (``return_value=0`` so the "no tasks" branch is deterministic).
+        validate_ip_addresses_have_prefixes / validate_vrf_consistency: the two
+            ``validate`` checks (``return_value=(True, [])`` -- passed, no
+            findings).
+        validate_netbox_connection: the pre-flight connection guard (no-op).
+        create_netbox_api: the ``validate`` API-client factory.
+        init_logger: the logger initialiser (see above).
+
+    ``main`` is imported inside the fixture body to preserve the
+    env-vars-before-import discipline. Shared with the Tier 10 (#258) command
+    tests; extend it here rather than re-patching per test module. The ``purge``
+    command builds its own client via ``pynetbox.api`` (not
+    ``create_netbox_api``), so purge tests additionally patch
+    ``main.pynetbox.api`` themselves.
+    """
+    from unittest.mock import MagicMock
+
+    from netbox_manager import main
+
+    spies = SimpleNamespace(
+        run_main=MagicMock(),
+        run_autoconf_for_devices=MagicMock(return_value=0),
+        validate_ip_addresses_have_prefixes=MagicMock(return_value=(True, [])),
+        validate_vrf_consistency=MagicMock(return_value=(True, [])),
+        validate_netbox_connection=MagicMock(),
+        create_netbox_api=MagicMock(),
+        init_logger=MagicMock(),
+    )
+    targets = {
+        "_run_main": spies.run_main,
+        "_run_autoconf_for_devices": spies.run_autoconf_for_devices,
+        "validate_ip_addresses_have_prefixes": (
+            spies.validate_ip_addresses_have_prefixes
+        ),
+        "validate_vrf_consistency": spies.validate_vrf_consistency,
+        "validate_netbox_connection": spies.validate_netbox_connection,
+        "create_netbox_api": spies.create_netbox_api,
+        "init_logger": spies.init_logger,
+    }
+    for attr, spy in targets.items():
+        monkeypatch.setattr(main, attr, spy)
+    return spies
+
+
 # --- Device Type Library (dtl.py) seams, Tier 9 (#257) --------------------
 #
 # ``netbox_manager.dtl`` talks to NetBox only through ``pynetbox.api`` and to
@@ -729,12 +814,14 @@ def make_request_error():
     ``RequestError.__new__`` and sets ``.error`` / ``.message`` directly,
     deliberately bypassing the real ``__init__`` (which requires a live
     ``requests.Response`` object). ``.error`` is what ``dtl.py`` reads off a
-    caught ``RequestError``; ``.message`` backs ``RequestError.__str__`` so the
-    ``main.py`` validators (Tier 7, #255) can ``logger.error(f"... {e}")`` before
-    re-raising without tripping over the unset attribute. The instance is still
-    caught by ``except pynetbox.RequestError``. Set it as a ``FakeDtlEndpoint``'s
+    caught ``RequestError``; ``.message`` backs ``RequestError.__str__``, so it
+    must be set for consumers that stringify the exception -- the ``main.py``
+    validators (Tier 7, #255) ``logger.error(f"... {e}")`` before re-raising, and
+    the command handlers log ``f"NetBox API error: {e}"`` (Tier 10, #258) --
+    without tripping over the unset attribute. The instance is still caught by
+    ``except pynetbox.RequestError``. Set it as a ``FakeDtlEndpoint``'s
     ``create_error`` to drive the error branches. Shared with later #232 tiers
-    that assert error propagation.
+    that assert error propagation (#256, #258).
     """
     import pynetbox
 
