@@ -897,53 +897,7 @@ def _run_main(
     if not skipres:
         logger.info("Manage resources")
 
-        files = []
-
-        # Find files directly in resources directory
-        for extension in ["yml", "yaml"]:
-            try:
-                top_level_files = glob.glob(
-                    os.path.join(settings.RESOURCES, f"*.{extension}")
-                )
-                # Apply limit filter at file level
-                if limit:
-                    top_level_files = [
-                        f
-                        for f in top_level_files
-                        if os.path.basename(f).startswith(limit)
-                    ]
-                files.extend(top_level_files)
-            except FileNotFoundError:
-                logger.error(f"Could not load resources in {settings.RESOURCES}")
-
-        # Find files in numbered subdirectories (excluding vars directory)
-        vars_dirname = None
-        vars_dir = getattr(settings, "VARS", None)
-        if vars_dir:
-            vars_dirname = os.path.basename(vars_dir)
-
-        try:
-            for item in os.listdir(settings.RESOURCES):
-                item_path = os.path.join(settings.RESOURCES, item)
-                if os.path.isdir(item_path) and (
-                    not vars_dirname or item != vars_dirname
-                ):
-                    # Only process directories that start with a number and hyphen
-                    if re.match(r"^\d+-.+", item):
-                        # Apply limit filter at directory level
-                        if limit and not item.startswith(limit):
-                            continue
-
-                        dir_files = []
-                        for extension in ["yml", "yaml"]:
-                            dir_files.extend(
-                                glob.glob(os.path.join(item_path, f"*.{extension}"))
-                            )
-                        # Sort files within the directory by their basename
-                        dir_files.sort(key=lambda f: os.path.basename(f))
-                        files.extend(dir_files)
-        except FileNotFoundError:
-            pass
+        files = discover_resource_files(settings.RESOURCES, limit)
 
         if not always:
             files_filtered = [f for f in files if f in files_changed]
