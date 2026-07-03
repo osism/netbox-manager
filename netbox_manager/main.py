@@ -2943,7 +2943,7 @@ def validate_ip_addresses_have_prefixes(
 
             # Parse the IP address
             try:
-                ip_network = ipaddress.ip_network(ip_address_str, strict=False)
+                ip_iface = ipaddress.ip_interface(ip_address_str)
             except ValueError as e:
                 orphaned_ips.append(
                     {
@@ -2961,16 +2961,19 @@ def validate_ip_addresses_have_prefixes(
                 )
                 continue
 
-            # Find matching prefixes in the same VRF
-            # Search for prefixes that contain this IP address
+            # Find matching prefixes in the same VRF. Query the host IP itself
+            # (not its network base): a smaller covering prefix could contain
+            # the network address yet exclude the host, wrongly passing an
+            # orphaned IP.
+            host_ip = str(ip_iface.ip)
             if vrf_id:
                 matching_prefixes = netbox_api.ipam.prefixes.filter(
-                    contains=str(ip_network.network_address), vrf_id=vrf_id
+                    contains=host_ip, vrf_id=vrf_id
                 )
             else:
                 # For global routing table (no VRF), filter for null VRF
                 matching_prefixes = netbox_api.ipam.prefixes.filter(
-                    contains=str(ip_network.network_address), vrf_id="null"
+                    contains=host_ip, vrf_id="null"
                 )
 
             # Check if any matching prefix was found
