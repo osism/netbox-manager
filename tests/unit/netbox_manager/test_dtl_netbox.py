@@ -370,17 +370,20 @@ class TestCreateModuleTypes:
         assert api.dcim.module_types.create_calls == [_module_type(model="NewModule")]
         assert netbox.counter["module_added"] == 1
 
-    def test_request_error_logged(
+    def test_request_error_skips_component_dispatch(
         self, monkeypatch, make_dtl_api, make_request_error, capsys
     ):
         api = make_dtl_api()
         api.dcim.module_types.create_error = make_request_error("bad")
         netbox, _ = make_netbox(monkeypatch, api)
+        mock_dt = Mock()
+        netbox.device_types = mock_dt
 
-        # No component keys -> no NameError on the unbound module_type_res.
-        netbox.create_module_types([_module_type()])
+        netbox.create_module_types([_module_type(interfaces=[{"name": "Ethernet1"}])])
 
+        # The RequestError branch logs and ``continue``s before dispatching.
         assert "creating module type" in capsys.readouterr().out
+        mock_dt.create_module_interfaces.assert_not_called()
         assert netbox.counter["module_added"] == 0
 
     def test_dispatches_each_present_key(self, monkeypatch, make_dtl_api):
