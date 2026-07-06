@@ -135,7 +135,7 @@ def validate_netbox_connection():
         settings.validators.validate_all()
     except ValidationError as e:
         logger.error(f"Error validating NetBox connection settings: {e.details}")
-        raise typer.Exit()
+        raise typer.Exit(1)
 
 
 inventory = {

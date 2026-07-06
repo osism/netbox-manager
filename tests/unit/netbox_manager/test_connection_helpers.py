@@ -85,7 +85,7 @@ class TestValidateNetboxConnection:
         assert [v.names for v in validators.registered[0]] == [("TOKEN",), ("URL",)]
         assert validators.validate_all_calls == 1
 
-    def test_validate_error_exits_with_default_code(self, monkeypatch, caplog):
+    def test_validate_error_exits_nonzero(self, monkeypatch, caplog):
         error = main.ValidationError("boom", details=[("TOKEN", "must be str")])
         validators = _RecordingValidators(error=error)
         monkeypatch.setattr(main, "settings", SimpleNamespace(validators=validators))
@@ -93,8 +93,9 @@ class TestValidateNetboxConnection:
         with pytest.raises(typer.Exit) as exc_info:
             main.validate_netbox_connection()
 
-        # Source raises a bare typer.Exit() -> default exit code 0, not 1.
-        assert exc_info.value.exit_code == 0
+        # A settings-validation failure must surface as a non-zero exit so
+        # callers keying off the exit code see the failure, not a silent pass.
+        assert exc_info.value.exit_code == 1
         assert "Error validating NetBox connection settings" in caplog.text
 
 
