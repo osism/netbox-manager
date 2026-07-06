@@ -6,8 +6,8 @@ Two small helpers in ``netbox_manager.main`` bridge to NetBox:
 
 * ``validate_netbox_connection`` registers ``TOKEN`` / ``URL`` validators on
   ``settings.validators`` and calls ``validate_all()``; a raised
-  ``dynaconf.ValidationError`` is logged and re-raised as ``typer.Exit()`` (the
-  default, exit code **0** -- not 1).
+  ``dynaconf.ValidationError`` is logged and re-raised as ``typer.Exit(1)``
+  so a settings-validation failure surfaces as a non-zero exit.
 * ``create_netbox_api`` builds ``pynetbox.api(settings.URL,
   token=str(settings.TOKEN))`` and, when ``IGNORE_SSL_ERRORS`` is truthy,
   disables ``api.http_session.verify``.
