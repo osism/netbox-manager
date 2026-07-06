@@ -166,6 +166,11 @@ def make_interface():
             attribute (build entries inline as
             ``SimpleNamespace(mac_address=...)``); defaults to ``[]`` so the
             falsy check in the collector works without a guard.
+        lag: the member interface's back-reference to its LAG -- a bag
+            exposing ``.name`` (e.g.
+            ``SimpleNamespace(name="PortChannel2")``), or ``None`` (default)
+            for a non-member interface. The PortChannel generator reads it to
+            preserve an existing LAG's number across runs.
 
     Shared with later #232 test tiers.
     """
@@ -181,6 +186,7 @@ def make_interface():
         device=None,
         mac_address=None,
         mac_addresses=None,
+        lag=None,
     ):
         if type_value is None and type_label is None:
             interface_type = None
@@ -199,6 +205,7 @@ def make_interface():
             device=device,
             mac_address=mac_address,
             mac_addresses=[] if mac_addresses is None else mac_addresses,
+            lag=lag,
         )
 
     return _make_interface
