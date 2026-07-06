@@ -1924,16 +1924,41 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
 
     logger.info(f"Found {len(switch_devices)} switch devices")
 
+    def parse_portchannel_number(name: Optional[str]) -> Optional[int]:
+        match = re.fullmatch(r"PortChannel(\d+)", name or "")
+        return int(match.group(1)) if match else None
+
     # Track connections between switches
     # Key: tuple of (switch1_name, switch2_name) where switch1_name < switch2_name
     # Value: list of tuples (switch1_interface, switch2_interface)
     switch_connections: Dict[Tuple[str, str], List[Tuple[Any, Any]]] = {}
 
+    # Collect existing PortChannel assignments per device (populated in the loop
+    # below before the cable/endpoint gates skip LAG interfaces).
+    existing_lag_numbers: Dict[str, Set[int]] = {}
+    member_to_number: Dict[str, Dict[str, int]] = {}
+
     # Analyze connections for each switch
     for switch in switch_devices:
-        interfaces = netbox_api.dcim.interfaces.filter(device_id=switch.id)
+        interfaces = list(netbox_api.dcim.interfaces.filter(device_id=switch.id))
 
         for interface in interfaces:
+            # Collect existing LAG interfaces and member back-references before
+            # the cable/endpoint gates: LAGs are virtual (uncabled) and would
+            # otherwise be silently skipped.
+            iface_type = getattr(interface, "type", None)
+            if getattr(iface_type, "value", None) == "lag":
+                number = parse_portchannel_number(interface.name)
+                if number is not None:
+                    existing_lag_numbers.setdefault(switch.name, set()).add(number)
+            member_lag = getattr(interface, "lag", None)
+            if member_lag is not None:
+                number = parse_portchannel_number(getattr(member_lag, "name", None))
+                if number is not None:
+                    member_to_number.setdefault(switch.name, {})[
+                        interface.name
+                    ] = number
+
             # Skip if no cable connection
             if not (hasattr(interface, "cable") and interface.cable):
                 continue
@@ -1993,10 +2018,31 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
     # Ethernet4/1 both -> 1, or digit-less names both -> 0), the later pair would
     # otherwise collide on the same name. Disambiguate by bumping to the next
     # free number on that device.
-    used_portchannel_numbers: Dict[str, Set[int]] = {}
+    # Pre-seeded with numbers already held by existing PortChannel LAGs so that
+    # genuinely new channels never grab a number an existing LAG already holds,
+    # and so that surviving channels can reuse their existing number via
+    # member_to_number (read back from interface.lag in the loop above).
+    used_portchannel_numbers: Dict[str, Set[int]] = {
+        device: set(numbers) for device, numbers in existing_lag_numbers.items()
+    }
 
-    def assign_portchannel_number(device_name: str, desired: int) -> int:
+    def assign_portchannel_number(
+        device_name: str, desired: int, member_names: List[str]
+    ) -> int:
         used = used_portchannel_numbers.setdefault(device_name, set())
+        device_members = member_to_number.get(device_name, {})
+        existing = {
+            device_members[name] for name in member_names if name in device_members
+        }
+        if existing:
+            number = min(existing)
+            if len(existing) > 1:
+                logger.warning(
+                    f"Members of a PortChannel on {device_name} map to multiple "
+                    f"existing LAG numbers {sorted(existing)}; reusing {number}"
+                )
+            used.add(number)
+            return number
         number = desired
         while number in used:
             number += 1
@@ -2059,6 +2105,7 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
         switch1_portchannel_number = assign_portchannel_number(
             switch1_name,
             min(switch1_port_numbers) if switch1_port_numbers else 1,
+            switch1_interfaces,
         )
         switch1_portchannel_name = f"PortChannel{switch1_portchannel_number}"
 
@@ -2068,6 +2115,7 @@ def _generate_portchannel_tasks() -> List[Dict[str, Any]]:
         switch2_portchannel_number = assign_portchannel_number(
             switch2_name,
             min(switch2_port_numbers) if switch2_port_numbers else 1,
+            switch2_interfaces,
         )
         switch2_portchannel_name = f"PortChannel{switch2_portchannel_number}"
 

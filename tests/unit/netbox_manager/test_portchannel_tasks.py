@@ -384,6 +384,81 @@ def test_shared_switch_colliding_digitless_names_get_distinct_lags(
     assert _lag_names_for(tasks, "sw-c") == ["PortChannel0", "PortChannel1"]
 
 
+def test_existing_lag_number_is_reused_for_surviving_channel(
+    roles, monkeypatch, make_netbox_api, make_device, make_interface
+):
+    # sw-c sits in two pairs. The sw-a<->sw-c pair is removed; only sw-b<->sw-c
+    # remains. sw-c's surviving members (Ethernet4/1, Ethernet4/2) previously
+    # belonged to PortChannel2. Without stateful numbering they would derive 1
+    # (second number in the slashed name) and take PortChannel1, silently
+    # shifting the name. With stateful numbering the existing LAG number is
+    # reused and the name stays PortChannel2.
+    from types import SimpleNamespace
+
+    sw_b = make_device(name="sw-b", role_slug="leaf", device_id=2)
+    sw_c = make_device(name="sw-c", role_slug="leaf", device_id=3)
+    pc = make_interface(
+        name="PortChannel2", type_value="lag", interface_id=390, device=sw_c
+    )
+    c1 = make_interface(
+        name="Ethernet4/1",
+        interface_id=341,
+        device=sw_c,
+        lag=SimpleNamespace(name="PortChannel2"),
+    )
+    c2 = make_interface(
+        name="Ethernet4/2",
+        interface_id=342,
+        device=sw_c,
+        lag=SimpleNamespace(name="PortChannel2"),
+    )
+    b1 = _iface(make_interface, device=sw_b, name="Ethernet1", interface_id=201)
+    b2 = _iface(make_interface, device=sw_b, name="Ethernet2", interface_id=202)
+    _link(b1, c1)
+    _link(b2, c2)
+    _wire(
+        monkeypatch,
+        make_netbox_api,
+        devices=[sw_b, sw_c],
+        interfaces_by_device={2: [b1, b2], 3: [c1, c2, pc]},
+    )
+
+    tasks = main._generate_portchannel_tasks()
+
+    assert _lag_names_for(tasks, "sw-c") == ["PortChannel2"]
+
+
+def test_new_channel_avoids_existing_lag_number(
+    roles, monkeypatch, make_netbox_api, make_device, make_interface
+):
+    # sw-c already has PortChannel1 (no members participating this run).
+    # A newly cabled sw-b<->sw-c pair whose sw-c members carry no lag yet and
+    # extract to 1 must bump past PortChannel1 to PortChannel2.
+    sw_b = make_device(name="sw-b", role_slug="leaf", device_id=2)
+    sw_c = make_device(name="sw-c", role_slug="leaf", device_id=3)
+    pc = make_interface(
+        name="PortChannel1", type_value="lag", interface_id=391, device=sw_c
+    )
+    c1 = make_interface(name="Ethernet1", interface_id=311, device=sw_c)
+    c2 = make_interface(name="Ethernet2", interface_id=312, device=sw_c)
+    b1 = _iface(make_interface, device=sw_b, name="Ethernet1", interface_id=201)
+    b2 = _iface(make_interface, device=sw_b, name="Ethernet2", interface_id=202)
+    _link(b1, c1)
+    _link(b2, c2)
+    _wire(
+        monkeypatch,
+        make_netbox_api,
+        devices=[sw_b, sw_c],
+        interfaces_by_device={2: [b1, b2], 3: [c1, c2, pc]},
+    )
+
+    tasks = main._generate_portchannel_tasks()
+
+    lag_tasks_sw_c = _lag_names_for(tasks, "sw-c")
+    assert len(lag_tasks_sw_c) == 1
+    assert lag_tasks_sw_c == ["PortChannel2"]
+
+
 def test_lag_tasks_precede_members_each_sorted_by_device_and_name(
     roles, monkeypatch, make_netbox_api, make_device, make_interface
 ):
