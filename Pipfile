@@ -14,7 +14,7 @@ loguru = "==0.7.3"
 pynetbox = "==7.8.0"
 setuptools = "==82.0.1"
 sushy = "==5.11.1"
-typer = "==0.26.8"
+typer = "==0.27.0"
 yamale = "==6.1.0"
 
 [dev-packages]
