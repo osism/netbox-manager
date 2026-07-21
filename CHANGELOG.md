@@ -5,13 +5,91 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.20260721.0] - 2026-07-21
+
+### Dependencies
+- ansible-core 2.19.3 → 2.19.11 (osism/netbox-manager#283)
+- gitpython 3.1.50 → 3.1.52 (osism/netbox-manager#282, osism/netbox-manager#284)
+- setuptools 82.0.1 → 83.0.0 (osism/netbox-manager#281)
+- typer 0.26.8 → 0.27.0 (osism/netbox-manager#285)
+
+## [v0.20260706.0] - 2026-07-06
 
 ### Added
-- End-to-end test harness (`make e2e`) deploying NetBox on kind via the pinned netbox-chart and verifying `example/` through the REST API (osism/netbox-manager#262)
+- Add Tier 1 unit-test suite for the pure-logic helpers in `netbox_manager/main.py` — settings/role helpers, generic data-transformation helpers, task-filter helpers, autoconf helpers, and loopback-gate helpers — with shared device/interface conftest factories (osism/netbox-manager#248)
+- End-to-end test harness (`make e2e`) that provisions NetBox on a local kind cluster via the pinned netbox-chart (8.2.5, NetBox v4.5.10), applies the bundled `example/` data with `netbox-manager run`, and verifies the result through the NetBox REST API; runs as the `netbox-manager-e2e` Zuul job in both the PR check gate and the periodic-daily pipeline (osism/netbox-manager#263)
+- Base NetBox resources (IPAM roles, device roles, tags, and custom fields) referenced by the example data (osism/netbox-manager#263)
+- Unit tests for the NetBox and URI task builders (osism/netbox-manager#251)
+- Unit tests for playbook rendering (`create_ansible_playbook`) and the YAML dumper (`ProperIndentDumper`), plus a hermetic dynaconf environment baseline in the test suite (osism/netbox-manager#251)
+- Unit tests for `handle_file` orchestration, with shared loguru/caplog and `ansible_runner` recorder fixtures for the test suite (osism/netbox-manager#266)
+- Unit tests for the YAML file discovery, global vars loading, resource/site-folder discovery, and autoconf file writing helpers (osism/netbox-manager#269)
+- Add unit tests and shared fixtures for the Device Type Library (DTL) importer, covering Repo file walking, the NetBox API wrapper, and DeviceTypes component creators (osism/netbox-manager#270)
+- Add unit test coverage for Loopback0 interface generation, cluster loopback IP calculation, device interface label generation, and PortChannel task generation, including shared pynetbox mock fixtures (osism/netbox-manager#271)
+- Extend shared test factories with autoconf pynetbox shapes for upcoming autoconf collector tests (osism/netbox-manager#272)
+- Add unit test coverage for the autoconf collectors (MAC and IP assignment collection) and the autoconf task dispatcher (osism/netbox-manager#272)
+- Add unit test coverage for the IP-prefix and VRF-consistency NetBox validation helpers, with shared VRF/IP-address test fixtures (osism/netbox-manager#273)
+- Add shared CLI runner and worker-spy fixtures for upcoming command-wiring tests (osism/netbox-manager#275)
+- Add smoke tests for CLI command wiring covering `run`, `autoconf`, `validate`, `purge`, and entrypoint/utility commands (osism/netbox-manager#275)
+- Add unit tests for archive export/import and NetBox connection helpers, plus shared git/subprocess/platform mock fixtures (osism/netbox-manager#274)
 
 ### Changed
-- Untagged builds now carry a distinguishing `{tag}.post{ccount}+git.{sha}` version instead of collapsing to the bare release tag, so a local checkout (e.g. the E2E job) is no longer indistinguishable from the published PyPI release (osism/netbox-manager#262)
+- Consolidate the portchannel task filter into the generic device-filter helper, removing a byte-identical duplicate function (osism/netbox-manager#248)
+- Untagged builds now carry a distinguishing dev version (`{tag}.post{ccount}+git.{sha}`) instead of collapsing to the bare release tag (osism/netbox-manager#263)
+- Use the shared `discover_resource_files` helper in `_run_main` to remove duplicated resource-file discovery logic (osism/netbox-manager#269)
+
+### Fixed
+- Fix project board automation not running for fork pull requests by switching to `pull_request_target` and scoping the shared secret (osism/netbox-manager#264)
+- Setting defaults (e.g. `VERBOSE`, `IGNORE_SSL_ERRORS`) are now applied correctly when netbox-manager is configured purely through environment variables (osism/netbox-manager#263)
+- Fix rendered playbook temp files leaking into the system temp directory instead of being cleaned up after each resource file is processed (osism/netbox-manager#267)
+- Fix `UnboundLocalError` when creating a module type fails and the entry has component keys, by skipping component dispatch after a failed create (osism/netbox-manager#270)
+- Fix file descriptor leak in device type image uploads by closing image handles after the PATCH request completes (osism/netbox-manager#270)
+- Fix IP-prefix validation matching against the network base instead of the host IP, which could wrongly pass an orphaned IP address as having a matching prefix (osism/netbox-manager#273)
+- Guard tar extraction in `import-archive` against path traversal and decompression-bomb attacks (osism/netbox-manager#274)
+- Exit with a non-zero status when NetBox connection settings fail validation, so callers checking the exit code no longer treat a misconfigured URL or token as success (osism/netbox-manager#274)
+- Fix PortChannel name collisions when a switch shares multiple pairs deriving the same number, and preserve existing PortChannel numbers across runs so removing one channel no longer renames a surviving one (osism/netbox-manager#276)
+
+### Dependencies
+- pynetbox 7.7.0 → 7.8.0 (osism/netbox-manager#260)
+- pytest 9.1.0 → 9.1.1 (osism/netbox-manager#261)
+- dynaconf 3.2.13 → 3.3.1 (osism/netbox-manager#265)
+- ansible_modules devel → v3.23.0 (osism/netbox-manager#263)
+- dynaconf 3.3.1 → 3.3.2 (osism/netbox-manager#268)
+- sushy 5.11.0 → 5.11.1 (osism/netbox-manager#277)
+- typing_extensions 4.15.0 → 4.16.0 (osism/netbox-manager#278)
+- typer 0.26.7 → 0.26.8 (osism/netbox-manager#279)
+
+## [v0.20260614.0] - 2026-06-14
+
+### Added
+- Add pytest foundation and Zuul unit-test job for incremental per-module unit testing (osism/netbox-manager#234)
+- Automatically add opened issues and PRs to project board (osism/netbox-manager#236)
+- Add segment-level fallback for device interface labels via the `_segment_device_interface_label` config context key when the per-device custom field is not set (osism/netbox-manager#246)
+
+### Changed
+- Reformat code to comply with black 26.3.1 stable style (osism/netbox-manager#226)
+
+### Fixed
+- Pin pipenv version in CI via ensure-pipenv role to fix stale Pipfile.lock verification (osism/netbox-manager#235)
+- Disambiguate duplicate device interface labels on multi-homed nodes so repeated links to the same switch no longer produce identical labels (osism/netbox-manager#245)
+
+### Dependencies
+- gitpython 3.1.46 → 3.1.50 (osism/netbox-manager#227, osism/netbox-manager#231, osism/netbox-manager#239)
+- typer 0.24.1 → 0.26.7 (osism/netbox-manager#228, osism/netbox-manager#229, osism/netbox-manager#240, osism/netbox-manager#241, osism/netbox-manager#242, osism/netbox-manager#244)
+- sushy 5.10.0 → 5.11.0 (osism/netbox-manager#237)
+- pynetbox 7.6.1 → 7.7.0 (osism/netbox-manager#238)
+- pytest 9.0.3 → 9.1.0 (osism/netbox-manager#250)
+
+## [v0.20260322.0] - 2026-03-22
+
+### Added
+- Configurable `_segment_loopback_network_multiplicator` parameter allowing segments to override the default multiplicator in loopback IP address calculation (osism/netbox-manager#222)
+
+### Changed
+- Update CHANGELOG.md (osism/netbox-manager#221)
+
+### Dependencies
+- ansible-runner 2.4.2 → 2.4.3 (osism/netbox-manager#218)
+- dynaconf 3.2.12 → 3.2.13 (osism/netbox-manager#225)
 
 ## [v0.20260310.0] - 2026-03-10
 
