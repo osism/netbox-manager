@@ -3,7 +3,7 @@ Jinja2==3.1.6
 PyYAML==6.0.3
 ansible-core==2.19.11
 ansible-runner==2.4.3
-dynaconf==3.3.2
+dynaconf==3.3.3
 loguru==0.7.3
 pynetbox==7.8.0
 setuptools==83.0.0
