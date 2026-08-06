@@ -7,7 +7,7 @@ dynaconf==3.3.4
 loguru==0.7.3
 pynetbox==7.8.0
 setuptools==83.0.0
-sushy==5.11.1
+sushy==5.12.0
 typer==0.27.0
 typing_extensions==4.16.0
 yamale==6.1.0
