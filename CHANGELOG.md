@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.20260810.0] - 2026-08-10
+
+### Dependencies
+- dynaconf 3.3.2 → 3.3.5 (osism/netbox-manager#289, osism/netbox-manager#291, osism/netbox-manager#294)
+- gitpython 3.1.52 → 3.1.58 (osism/netbox-manager#287, osism/netbox-manager#288, osism/netbox-manager#290, osism/netbox-manager#293)
+- sushy 5.11.1 → 5.12.0 (osism/netbox-manager#292)
+- typer 0.27.0 → 0.27.1 (osism/netbox-manager#295)
+
 ## [v0.20260721.0] - 2026-07-21
 
 ### Dependencies
