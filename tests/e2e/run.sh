@@ -45,23 +45,85 @@ if ! kind get clusters | grep -qx "${CLUSTER_NAME}"; then
 fi
 
 PF_PID=""
+WATCH_PID=""
+# Sample the rollout every 10s while NetBox installs. The states that decide
+# whether this run passes are transient: the netbox Deployment's Progressing
+# condition flipping to ProgressDeadlineExceeded (and back, once the pod goes
+# Ready), and the worker's wait-for-backend restart count climbing while it is
+# locked out. A post-mortem dump taken minutes later cannot recover any of
+# them, so they have to be recorded as they happen -- on passing runs too,
+# since a pass only tells us something if we know whether it crossed the
+# deadline at all.
+watch_rollout() {
+  # --context: this starts before deploy_netbox.sh creates the cluster, so
+  # without it the first samples would go to whatever context happens to be
+  # current -- possibly a real cluster with a netbox namespace. Until the kind
+  # cluster exists the context does not resolve, kubectl exits non-zero, and
+  # the guard below simply skips the sample.
+  # --request-timeout: a wedged API server must not silently stop evidence
+  # collection; `|| true` catches failures, not hangs.
+  local ctx="kind-${CLUSTER_NAME}"
+  while :; do
+    ts="$(date -u +%H:%M:%SZ)"
+    cond="$(kubectl --context "${ctx}" --request-timeout=5s \
+      -n "${NAMESPACE}" get deploy netbox \
+      -o jsonpath='{range .status.conditions[*]}{.type}={.status}/{.reason} {end}' \
+      2>/dev/null || true)"
+    init="$(kubectl --context "${ctx}" --request-timeout=5s \
+      -n "${NAMESPACE}" get pods \
+      -l app.kubernetes.io/component=worker \
+      -o jsonpath='{range .items[*]}restarts={.status.initContainerStatuses[0].restartCount} ready={.status.initContainerStatuses[0].ready}{end}' \
+      2>/dev/null || true)"
+    if [[ -n "${cond}${init}" ]]; then
+      echo "[watch ${ts}] deploy/netbox ${cond}| wait-for-backend ${init}"
+    fi
+    sleep 10
+  done
+}
+
+# Condition timestamps, restart counts: the minimum needed to tell whether a
+# run crossed the 600s progress deadline and whether the worker survived it.
+# Cheap enough to emit on every run, unlike the full dump below.
+#
+# Every diagnostic request is bounded with --request-timeout. This runs from
+# cleanup() on every exit, ahead of `kind delete cluster`, so an unresponsive
+# API server would otherwise hang teardown until Zuul kills the job at the
+# 40-minute mark -- turning a clean failure into a lost one. `|| true` covers
+# a command that fails, not one that never returns.
+dump_rollout_summary() {
+  echo "----- deployments (${NAMESPACE}) -----"
+  kubectl --request-timeout=10s -n "${NAMESPACE}" get deploy -o wide 2>&1 || true
+  for d in $(kubectl --request-timeout=10s -n "${NAMESPACE}" get deploy -o name 2>/dev/null); do
+    echo "--- ${d} conditions ---"
+    kubectl --request-timeout=10s -n "${NAMESPACE}" get "${d}" \
+      -o jsonpath='{range .status.conditions[*]}{.type}={.status}/{.reason} (since {.lastTransitionTime}){"\n"}{end}' \
+      2>&1 || true
+  done
+  echo "----- pod readiness transitions (${NAMESPACE}) -----"
+  kubectl --request-timeout=10s -n "${NAMESPACE}" get pods \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"  Ready="}{range .status.conditions[?(@.type=="Ready")]}{.status}{" since "}{.lastTransitionTime}{end}{"\n"}{end}' \
+    2>&1 || true
+  echo "----- pods (${NAMESPACE}) -----"
+  kubectl --request-timeout=10s -n "${NAMESPACE}" get pods -o wide 2>&1 || true
+}
+
 # Dump cluster state to stdout (always captured in the CI job log) so a
 # failed run is debuggable -- the cluster is torn down on exit, taking any
 # pod logs with it, so we must snapshot before that happens.
 dump_diagnostics() {
   echo "==================== kind / NetBox diagnostics ===================="
-  kubectl get nodes -o wide 2>&1 || true
+  kubectl --request-timeout=10s get nodes -o wide 2>&1 || true
   echo "----- pods (all namespaces) -----"
-  kubectl get pods -A -o wide 2>&1 || true
+  kubectl --request-timeout=10s get pods -A -o wide 2>&1 || true
   echo "----- events (${NAMESPACE}, recent) -----"
-  kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp 2>&1 | tail -n 60 || true
-  for p in $(kubectl -n "${NAMESPACE}" get pods -o name 2>/dev/null); do
+  kubectl --request-timeout=10s -n "${NAMESPACE}" get events --sort-by=.lastTimestamp 2>&1 | tail -n 60 || true
+  for p in $(kubectl --request-timeout=10s -n "${NAMESPACE}" get pods -o name 2>/dev/null); do
     echo "----- describe ${p} -----"
-    kubectl -n "${NAMESPACE}" describe "${p}" 2>&1 || true
+    kubectl --request-timeout=10s -n "${NAMESPACE}" describe "${p}" 2>&1 || true
     echo "----- logs ${p} (current) -----"
-    kubectl -n "${NAMESPACE}" logs "${p}" --all-containers --tail=80 2>&1 || true
+    kubectl --request-timeout=10s -n "${NAMESPACE}" logs "${p}" --all-containers --timestamps --tail=80 2>&1 || true
     echo "----- logs ${p} (previous) -----"
-    kubectl -n "${NAMESPACE}" logs "${p}" --all-containers --previous --tail=80 2>&1 || true
+    kubectl --request-timeout=10s -n "${NAMESPACE}" logs "${p}" --all-containers --timestamps --previous --tail=80 2>&1 || true
   done
   echo "=================================================================="
 }
@@ -70,6 +132,13 @@ cleanup() {
   if [[ -n "${PF_PID}" ]]; then
     kill "${PF_PID}" 2>/dev/null || true
   fi
+  if [[ -n "${WATCH_PID}" ]]; then
+    kill "${WATCH_PID}" 2>/dev/null || true
+  fi
+  # The summary goes out on success as well: a green run is only evidence
+  # about the progress-deadline race if we can see whether it hit it.
+  echo ">>> Rollout summary (exit ${rc})"
+  dump_rollout_summary || true
   if [[ "${rc}" -ne 0 ]]; then
     echo ">>> E2E run failed (exit ${rc}); dumping cluster diagnostics before teardown"
     dump_diagnostics || true
@@ -84,9 +153,18 @@ cleanup() {
 trap cleanup EXIT
 
 # --- Phase 1: provision NetBox on kind -------------------------------------
+# The watch only needs to cover the install: the progress-deadline race is
+# decided inside helm's wait, and leaving it running for the rest of the
+# suite would add noise without adding evidence.
+watch_rollout &
+WATCH_PID=$!
+
 # Suppress the API token in deploy_netbox.sh's summary: the full run does
 # not need it echoed, and this run's logs may be retained (e.g. CI).
 PRINT_NETBOX_TOKEN=0 tests/e2e/deploy_netbox.sh
+
+kill "${WATCH_PID}" 2>/dev/null || true
+WATCH_PID=""
 
 echo ">>> Port-forwarding svc/netbox -> 127.0.0.1:8080"
 kubectl -n "${NAMESPACE}" port-forward svc/netbox 8080:80 &
