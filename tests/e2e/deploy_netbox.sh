@@ -55,9 +55,39 @@ echo ">>> Deploying NetBox (netbox-chart ${CHART_VERSION}) into '${NAMESPACE}'"
 VALUES="$(mktemp)"
 chmod 600 "${VALUES}"
 trap 'rm -f "${VALUES}"' EXIT
+#
+# The worker's wait-for-backend init container defaults to
+# `kubectl rollout status deployment netbox`, which fails as soon as the
+# netbox Deployment trips its progressDeadlineSeconds (the Kubernetes
+# default, 600s -- the chart sets no value for it). NetBox routinely needs
+# ~10 minutes to answer /login/ on a CI node, so the deadline fires while
+# the pod is still starting, the init container exits 1 and enters
+# CrashLoopBackOff, and it then stays locked out for a further backoff
+# interval (up to 300s) after NetBox is actually ready -- long enough for
+# the helm --wait budget below to expire. Waiting on the Deployment's
+# Available condition instead reaches the same gate without ever reading
+# the Progressing condition, so the deadline is irrelevant to it.
+#
+# NOTE: `\$(DEPLOYMENT_NAME)` is escaped on purpose. This heredoc is
+# unquoted, so a bare `$(...)` would be command-substituted by the shell
+# and silently render `deployment/` -- it must reach the container verbatim
+# for Kubernetes to expand it from the container's own env.
+#
+# This waits for availability, not for a completed rollout. The two are
+# equivalent only for a fresh single-replica install, which is what CI
+# does; on a reused cluster (see the kind block above) this script runs
+# `helm upgrade`, where an old ReplicaSet can keep the Deployment Available
+# while the new one is still rolling out.
 cat >"${VALUES}" <<EOF
 superuser:
   password: "${NETBOX_SUPERUSER_PASSWORD}"
+worker:
+  waitForBackend:
+    args:
+      - wait
+      - --for=condition=Available
+      - deployment/\$(DEPLOYMENT_NAME)
+      - --timeout=15m
 EOF
 # Valkey defaults to replication (1 primary + 3 replicas). On a single-node
 # kind cluster the extra replicas don't fit the node's CPU, so one stays
@@ -78,7 +108,16 @@ rm -f "${VALUES}"
 trap - EXIT
 
 echo ">>> Waiting for the NetBox deployment to become available"
-kubectl -n "${NAMESPACE}" rollout status deploy/netbox --timeout=15m
+# Deliberately `wait --for=condition=Available` rather than `rollout
+# status`: the latter reads the Progressing condition, so it fails whenever
+# that condition still reads ProgressDeadlineExceeded. Whether it still does
+# once NetBox is serving is an open question -- an isolated reproduction has
+# the condition clearing as soon as the Deployment goes Available, while one
+# observed CI failure points the other way and has not been explained. `wait`
+# never reads the condition, so it is correct either way, which is why this
+# does not wait on that question being settled. Same reasoning as the worker
+# override above.
+kubectl -n "${NAMESPACE}" wait --for=condition=Available deploy/netbox --timeout=15m
 
 # Mint a deterministic v1 API token for the superuser. The chart bootstrap
 # only creates a peppered v2 token with a random key (see the CHART_VERSION
