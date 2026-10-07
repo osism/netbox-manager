@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.20261007.0] - 2026-10-07
+
+### Added
+- Record rollout and readiness diagnostics for the e2e NetBox deployment on every run, not just failures, making intermittent CI failures easier to diagnose (osism/netbox-manager#307)
+
+### Fixed
+- Fix intermittent e2e job failures by waiting for the NetBox deployment to become available instead of relying on rollout status, which could crash-loop during slow CI startups (osism/netbox-manager#307)
+
+### Dependencies
+- gitpython 3.1.58 → 3.2.0 (osism/netbox-manager#300, osism/netbox-manager#303, osism/netbox-manager#304, osism/netbox-manager#306, osism/netbox-manager#309)
+- pytest-mock 3.15.1 → 3.16.0 (osism/netbox-manager#308)
+- setuptools 83.0.0 → 84.0.0 (osism/netbox-manager#301)
+- sushy 5.12.0 → 5.13.0 (osism/netbox-manager#302)
+- typer 0.27.1 → 0.27.2 (osism/netbox-manager#305)
+
 ## [v0.20260810.0] - 2026-08-10
 
 ### Fixed
