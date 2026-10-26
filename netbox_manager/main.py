@@ -536,7 +536,32 @@ def handle_file(
             if key == "vars":
                 # Merge local vars with global vars, local vars take precedence
                 template_vars = deep_merge(template_vars, value)
-            elif key == "debug":
+                continue
+
+            # Apply task filter if specified
+            if task_filter and should_skip_task_by_filter(key, task_filter):
+                logger.debug(f"Skipping task of type '{key}' (filter: {task_filter})")
+                continue
+
+            # Apply device filter if specified, also to debug and uri tasks
+            if device_filters:
+                device_names = (
+                    extract_device_names_from_task(key, value)
+                    if isinstance(value, dict)
+                    else []
+                )
+                if should_skip_task_by_device_filter(device_names, device_filters):
+                    if device_names:
+                        logger.debug(
+                            f"Skipping task with devices '{device_names}' (device filters: {device_filters})"
+                        )
+                    else:
+                        logger.debug(
+                            f"Skipping task of type '{key}' with no device reference (device filters active)"
+                        )
+                    continue
+
+            if key == "debug":
                 task = {"ansible.builtin.debug": value}
                 # Add register field if specified for debug tasks
                 if register_var:
@@ -550,27 +575,6 @@ def handle_file(
                 task = create_uri_task(value, register_var, ignore_errors)
                 template_tasks.append(task)
             else:
-                # Apply task filter if specified
-                if task_filter and should_skip_task_by_filter(key, task_filter):
-                    logger.debug(
-                        f"Skipping task of type '{key}' (filter: {task_filter})"
-                    )
-                    continue
-
-                # Apply device filter if specified
-                if device_filters:
-                    device_names = extract_device_names_from_task(key, value)
-                    if should_skip_task_by_device_filter(device_names, device_filters):
-                        if device_names:
-                            logger.debug(
-                                f"Skipping task with devices '{device_names}' (device filters: {device_filters})"
-                            )
-                        else:
-                            logger.debug(
-                                f"Skipping task of type '{key}' with no device reference (device filters active)"
-                            )
-                        continue
-
                 task = create_netbox_task(key, value, register_var, ignore_errors)
                 template_tasks.append(task)
     except Exception as e:

@@ -287,6 +287,50 @@ class TestHandleFileDispatch:
         assert "Skipping task with devices" in caplog.text
         assert "no device reference" in caplog.text
 
+    def test_device_filter_drops_uri_reading_skipped_register(self, tmp_path, capsys):
+        # The uri task reads a register set by a task without a device, so it
+        # must be skipped together with that task rather than fail undefined.
+        text = (
+            "- register: result_group\n  fhrp_group:\n    protocol: other\n    group_id: 1\n"
+            "- device_interface:\n    device: node-1\n    name: eth0\n"
+            '- uri:\n    path: "/ipam/fhrp-groups/{{ result_group.fhrp_group.id }}/"\n'
+            "    method: PATCH\n"
+            "- debug:\n    msg: done\n"
+        )
+        play = render_playbook(tmp_path, capsys, text, device_filters=["node-1"])
+        tasks = play["tasks"]
+        assert len(tasks) == 1
+        assert "netbox.netbox.netbox_device_interface" in tasks[0]
+
+    def test_device_filter_skips_file_with_only_unreferenced_tasks(
+        self, tmp_path, caplog, mock_ansible_runner
+    ):
+        caplog.set_level(logging.INFO)
+        text = "- debug:\n    msg: hi\n- uri:\n    path: /status/\n"
+        file = write_resource_file(tmp_path, text)
+        main.handle_file(file, dryrun=False, device_filters=["node-1"])
+        assert "No tasks to execute" in caplog.text
+        assert mock_ansible_runner.calls == []
+
+    def test_task_filter_applies_to_uri_and_debug(self, tmp_path, capsys):
+        text = (
+            "- debug:\n    msg: hi\n"
+            "- uri:\n    path: /status/\n"
+            "- vlan:\n    name: OOB\n"
+        )
+        play = render_playbook(tmp_path, capsys, text, task_filter="uri")
+        tasks = play["tasks"]
+        assert len(tasks) == 1
+        assert "ansible.builtin.uri" in tasks[0]
+
+    def test_device_filter_tolerates_non_dict_task_value(self, tmp_path, caplog):
+        caplog.set_level(logging.DEBUG)
+        # A plain string must not be indexed like a dict by the device lookup.
+        file = write_resource_file(tmp_path, '- debug: "device check"\n')
+        main.handle_file(file, dryrun=True, device_filters=["node-1"])
+        assert "Error processing tasks in file" not in caplog.text
+        assert "no device reference" in caplog.text
+
     def test_ignore_errors_reaches_all_task_types(self, tmp_path, capsys):
         text = (
             "- debug:\n    msg: hi\n"
