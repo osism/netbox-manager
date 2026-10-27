@@ -287,9 +287,10 @@ class TestHandleFileDispatch:
         assert "Skipping task with devices" in caplog.text
         assert "no device reference" in caplog.text
 
-    def test_device_filter_drops_uri_reading_skipped_register(self, tmp_path, capsys):
-        # The uri task reads a register set by a task without a device, so it
-        # must be skipped together with that task rather than fail undefined.
+    def test_device_filter_drops_uri_without_device_reference(self, tmp_path, capsys):
+        # The uri task is dropped because it has no device reference, not
+        # because it reads a register from a skipped task: the filter does not
+        # track registers.
         text = (
             "- register: result_group\n  fhrp_group:\n    protocol: other\n    group_id: 1\n"
             "- device_interface:\n    device: node-1\n    name: eth0\n"
@@ -301,6 +302,126 @@ class TestHandleFileDispatch:
         tasks = play["tasks"]
         assert len(tasks) == 1
         assert "netbox.netbox.netbox_device_interface" in tasks[0]
+
+    def test_device_filter_drops_uri_reading_kept_register(self, tmp_path, capsys):
+        # Without an explicit `device`, a uri task is dropped even when the
+        # task that sets its register is kept; `device:` is the way to keep it.
+        text = (
+            "- register: iface\n"
+            "  device_interface:\n    device: node-1\n    name: eth0\n"
+            '- uri:\n    path: "/dcim/interfaces/{{ iface.interface.id }}/"\n'
+            "    method: PATCH\n"
+        )
+        play = render_playbook(tmp_path, capsys, text, device_filters=["node-1"])
+        tasks = play["tasks"]
+        assert len(tasks) == 1
+        assert "netbox.netbox.netbox_device_interface" in tasks[0]
+
+    def test_device_filter_keeps_uri_with_matching_device(self, tmp_path, capsys):
+        text = (
+            "- register: iface\n"
+            "  device_interface:\n    device: node-1\n    name: eth0\n"
+            "- uri:\n    device: node-1\n"
+            '    path: "/dcim/interfaces/{{ iface.interface.id }}/"\n'
+            "    method: PATCH\n"
+            "    body:\n      description: uplink\n"
+        )
+        play = render_playbook(tmp_path, capsys, text, device_filters=["node-1"])
+        tasks = play["tasks"]
+        assert len(tasks) == 2
+        uri = tasks[1]["ansible.builtin.uri"]
+        # The association is filter-only and never reaches the request.
+        assert "device" not in uri
+        assert uri["body"] == {"description": "uplink"}
+
+    def test_device_filter_drops_uri_with_mismatching_device(self, tmp_path, capsys):
+        text = (
+            "- device_interface:\n    device: node-1\n    name: eth0\n"
+            "- uri:\n    device: node-2\n    path: /dcim/interfaces/7/\n"
+            "    method: PATCH\n"
+        )
+        play = render_playbook(tmp_path, capsys, text, device_filters=["node-1"])
+        tasks = play["tasks"]
+        assert len(tasks) == 1
+        assert "netbox.netbox.netbox_device_interface" in tasks[0]
+
+    def test_device_filter_uri_explicit_device_wins_over_nested(self, tmp_path, capsys):
+        text = (
+            "- device_interface:\n    device: node-1\n    name: eth0\n"
+            "- uri:\n    device: node-2\n    path: /some/endpoint/\n"
+            "    method: POST\n"
+            "    body:\n      device: node-1\n"
+        )
+        play = render_playbook(tmp_path, capsys, text, device_filters=["node-1"])
+        tasks = play["tasks"]
+        assert len(tasks) == 1
+        assert "netbox.netbox.netbox_device_interface" in tasks[0]
+
+    def test_device_filter_uri_falls_back_to_nested_device(self, tmp_path, capsys):
+        text = (
+            "- uri:\n    path: /some/endpoint/\n    method: POST\n"
+            "    body:\n      device: node-1\n"
+        )
+        play = render_playbook(tmp_path, capsys, text, device_filters=["node-1"])
+        tasks = play["tasks"]
+        assert len(tasks) == 1
+        assert "ansible.builtin.uri" in tasks[0]
+
+    def test_device_filter_netbox_task_selection_unchanged(self, tmp_path, capsys):
+        # NetBox resource tasks keep matching any referenced device: the device
+        # creation task by `name`, the cable by either termination.
+        text = (
+            "- device:\n    name: node-1\n    device_type: Node\n"
+            "- cable:\n    termination_a:\n      device: switch-0\n"
+            "      name: Ethernet1\n"
+            "    termination_b:\n      device: node-1\n      name: eth0\n"
+            "- device_interface:\n    device: node-2\n    name: eth0\n"
+        )
+        play = render_playbook(tmp_path, capsys, text, device_filters=["node-1"])
+        tasks = play["tasks"]
+        assert len(tasks) == 2
+        assert "netbox.netbox.netbox_device" in tasks[0]
+        assert "netbox.netbox.netbox_cable" in tasks[1]
+
+    @pytest.mark.parametrize(
+        "filters",
+        [
+            pytest.param({}, id="unfiltered"),
+            pytest.param({"task_filter": "vlan"}, id="task-filter-skips-uri"),
+            pytest.param({"device_filters": ["node-1"]}, id="device-mismatch"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "device, type_name",
+        [
+            pytest.param("[node-2, node-3]", "list", id="list"),
+            pytest.param("", "NoneType", id="null"),
+        ],
+    )
+    def test_uri_non_string_device_rejected_regardless_of_filters(
+        self, tmp_path, caplog, mock_ansible_runner, filters, device, type_name
+    ):
+        text = (
+            "- vlan:\n    name: OOB\n"
+            f"- uri:\n    device: {device}\n    path: /status/\n"
+        )
+        file = write_resource_file(tmp_path, text)
+        main.handle_file(file, dryrun=False, **filters)
+        assert "Error processing tasks in file" in caplog.text
+        assert f"must be a string, got {type_name}" in caplog.text
+        assert mock_ansible_runner.calls == []
+
+    def test_uri_integer_device_rejected_before_device_matching(
+        self, tmp_path, caplog, mock_ansible_runner
+    ):
+        # Without validation first, `'node-1' in 5` would raise a TypeError in
+        # the device match and hide the real problem.
+        file = write_resource_file(
+            tmp_path, "- uri:\n    device: 5\n    path: /status/\n"
+        )
+        main.handle_file(file, dryrun=False, device_filters=["node-1"])
+        assert "must be a string, got int" in caplog.text
+        assert mock_ansible_runner.calls == []
 
     def test_device_filter_skips_file_with_only_unreferenced_tasks(
         self, tmp_path, caplog, mock_ansible_runner
