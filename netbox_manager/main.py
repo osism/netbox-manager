@@ -293,6 +293,11 @@ def extract_device_names_from_task(key: str, value: Dict[str, Any]) -> List[str]
     """Extract all device names referenced in a task."""
     device_names = []
 
+    # A top-level 'device' on a uri task is a filter-only association and the
+    # sole answer, so a device inside the request body cannot override it
+    if key == "uri" and "device" in value:
+        return [value["device"]]
+
     # Check if task has a 'device' field (for tasks that reference a device)
     if "device" in value:
         device_names.append(value["device"])
@@ -305,6 +310,16 @@ def extract_device_names_from_task(key: str, value: Dict[str, Any]) -> List[str]
     device_names.extend(nested_device_names)
 
     return device_names
+
+
+def validate_uri_device_association(value: Dict[str, Any]) -> None:
+    """Reject a uri task whose filter-only 'device' association is not a string."""
+    # Check presence, not truthiness: an empty 'device:' is still an
+    # association to the extractor, so it must be rejected as well
+    if "device" in value and not isinstance(value["device"], str):
+        raise ValueError(
+            f"uri task 'device' must be a string, got {type(value['device']).__name__}"
+        )
 
 
 def should_skip_task_by_device_filter(
@@ -537,6 +552,11 @@ def handle_file(
                 # Merge local vars with global vars, local vars take precedence
                 template_vars = deep_merge(template_vars, value)
                 continue
+
+            # Validate before filtering so a malformed association fails on
+            # every run, not only on runs whose filters select the task
+            if key == "uri" and isinstance(value, dict):
+                validate_uri_device_association(value)
 
             # Apply task filter if specified
             if task_filter and should_skip_task_by_filter(key, task_filter):
@@ -986,14 +1006,18 @@ def run_command(
     wait: Annotated[bool, typer.Option(help="Wait for NetBox service")] = True,
     filter_task: Annotated[
         Optional[str],
-        typer.Option(help="Filter tasks by type (e.g., 'device', 'device_interface')"),
+        typer.Option(
+            help="Filter tasks by type (e.g., 'device', 'device_interface', 'uri')"
+        ),
     ] = None,
     include_ignored_files: Annotated[
         bool, typer.Option(help="Include files that are normally ignored")
     ] = False,
     filter_device: Annotated[
         Optional[List[str]],
-        typer.Option(help="Filter tasks by device name (can be used multiple times)"),
+        typer.Option(
+            help="Filter tasks by device name, matched as a substring (can be used multiple times)"
+        ),
     ] = None,
     fail_fast: Annotated[
         bool, typer.Option("--fail-fast", help="Exit on first Ansible playbook failure")

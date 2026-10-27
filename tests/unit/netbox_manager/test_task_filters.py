@@ -8,6 +8,8 @@ and the helper that extracts device names from a task. All operate on plain
 dicts/lists, so they need no mocks.
 """
 
+import pytest
+
 from netbox_manager import main
 
 
@@ -75,6 +77,40 @@ class TestExtractDeviceNamesFromTask:
             "node-0",  # same value re-collected by the nested search
             "node-9",  # nested device
         ]
+
+    def test_uri_explicit_device_ignores_nested_names(self):
+        # On a uri task a top-level `device` is a filter-only association and
+        # is the sole answer; a `device` inside the request body is not.
+        value = {"device": "node-2", "path": "/x/", "body": {"device": "node-1"}}
+        assert main.extract_device_names_from_task("uri", value) == ["node-2"]
+
+    def test_uri_without_explicit_device_falls_back_to_nested_names(self):
+        value = {"path": "/x/", "body": {"device": "node-1"}}
+        assert main.extract_device_names_from_task("uri", value) == ["node-1"]
+
+
+class TestValidateUriDeviceAssociation:
+    """``validate_uri_device_association`` accepts only a string ``device``."""
+
+    def test_string_device_is_accepted(self):
+        main.validate_uri_device_association({"device": "node-1", "path": "/x/"})
+
+    def test_missing_device_is_accepted(self):
+        main.validate_uri_device_association({"path": "/x/"})
+
+    def test_list_device_is_rejected(self):
+        with pytest.raises(ValueError, match="must be a string, got list"):
+            main.validate_uri_device_association({"device": ["node-1", "node-2"]})
+
+    def test_null_device_is_rejected(self):
+        # An explicit `device:` with no value is not the same as no key: the
+        # extractor treats a present key as the association.
+        with pytest.raises(ValueError, match="must be a string, got NoneType"):
+            main.validate_uri_device_association({"device": None})
+
+    def test_integer_device_is_rejected(self):
+        with pytest.raises(ValueError, match="must be a string, got int"):
+            main.validate_uri_device_association({"device": 5})
 
 
 class TestShouldSkipTaskByDeviceFilter:

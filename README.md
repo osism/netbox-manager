@@ -83,6 +83,52 @@ This approach allows you to:
 - Rerun specific resource groups after changes
 - Organize complex configurations into directories without losing limit functionality
 
+### Task and Device Filters
+
+`--filter-task` and `--filter-device` select tasks inside the processed files.
+`vars` blocks always apply; every other task, including `uri` and `debug`, has
+to pass both filters.
+
+1. `--filter-task TYPE` keeps only tasks of that type (`-` and `_` are
+   interchangeable, e.g. `device-interface` matches `device_interface`).
+2. `--filter-device NAME` keeps only tasks that reference a matching device.
+   The match is a substring match: `--filter-device node-1` also matches
+   `node-10`. The option can be given several times; a task is kept if any of
+   its devices matches any filter. Tasks without a device reference are
+   dropped.
+
+A NetBox resource task references a device through its top-level `device`
+field, through the `name` of a `device` task, or through any nested `device`
+field, e.g. either termination of a `cable`.
+
+A `uri` task usually addresses its target through a path built from a
+registered result and has no device reference, so a device-filtered run drops
+it. Give it a top-level `device` to associate it with a device:
+
+```yaml
+- register: iface
+  device_interface:
+    device: node-1
+    name: eth0
+
+- uri:
+    device: node-1
+    path: "/dcim/interfaces/{{ iface.interface.id }}/"
+    method: PATCH
+    body:
+      description: uplink
+```
+
+The `device` key is used only for filtering and is not sent to NetBox. It must
+be a string, and that is checked on every run, with or without filters. When it
+is set, it is the only device the filter looks at; a `device` field inside
+`body` is then ignored. Without it, nested `device` fields are used as for
+NetBox resource tasks.
+
+The association only decides whether the `uri` task runs. It does not make
+`iface` available: the task that registers it must be selected by the filters
+as well.
+
 ## Variables
 
 netbox-manager supports both local and global variables for flexible configuration management.
