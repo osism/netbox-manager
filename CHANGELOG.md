@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.20261111.0] - 2026-11-11
+
+### Added
+- Add optional `device` key on `uri` tasks to explicitly associate them with a device for `--filter-device` matching (osism/netbox-manager#321)
+
+### Fixed
+- Apply `--filter-task` and `--filter-device` to `uri` and `debug` tasks so filtered runs no longer execute `uri` tasks whose register dependencies were filtered out (osism/netbox-manager#320, contributed by Timon Schnell (@kingspeedy95))
+- Regenerate `Pipfile.lock` for setuptools 84.1.0, fixing `pipenv install --deploy` failures in the unit-test and e2e jobs (osism/netbox-manager#319)
+
+### Dependencies
+- typer 0.27.2 → 0.27.3 (osism/netbox-manager#312)
+- setuptools 84.0.0 → 84.1.0 (osism/netbox-manager#317)
+
 ## [v0.20261007.0] - 2026-10-07
 
 ### Added
