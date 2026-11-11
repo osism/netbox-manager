@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.20261111.0] - 2026-11-11
+
+### Changed
+
+- Update dependency typer to v0.27.3 (osism/netbox-manager#312)
+- Update dependency setuptools to v84.1.0 [SECURITY] (osism/netbox-manager#317)
+- Pipfile.lock: record setuptools 84.1.0 (osism/netbox-manager#319)
+- Apply task and device filters to uri and debug tasks (osism/netbox-manager#320, contributed by Timon Schnell (@kingspeedy95))
+- Add explicit device association for uri tasks (osism/netbox-manager#321)
+
 ## [v0.20261007.0] - 2026-10-07
 
 ### Added
