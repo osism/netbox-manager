@@ -4,7 +4,7 @@ PyYAML==6.0.3
 ansible-core==2.19.11
 ansible-runner==2.4.3
 dynaconf==3.3.5
-loguru==0.7.3
+loguru==0.8.0
 pynetbox==7.8.0
 setuptools==84.1.0
 sushy==5.13.0
