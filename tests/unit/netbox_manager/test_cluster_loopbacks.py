@@ -194,8 +194,8 @@ class TestCalculateLoopbackIps:
 @pytest.fixture
 def roles(monkeypatch):
     """Pin NODE_ROLES / SWITCH_ROLES so loopback eligibility is unambiguous."""
-    monkeypatch.setattr(main.settings, "NODE_ROLES", ["control"], raising=False)
-    monkeypatch.setattr(main.settings, "SWITCH_ROLES", ["leaf"], raising=False)
+    monkeypatch.setitem(main.settings, "NODE_ROLES", ["control"])
+    monkeypatch.setitem(main.settings, "SWITCH_ROLES", ["leaf"])
 
 
 def _wire(monkeypatch, make_netbox_api, *, devices, config_contexts_by_cluster=None):

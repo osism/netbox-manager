@@ -24,7 +24,13 @@ os.environ["NETBOX_MANAGER_IGNORE_SSL_ERRORS"] = "false"
 # `get_switch_roles()` return the deployment list -- breaking the default-role
 # and `is _DEFAULT_*` assertions. Drop them before `netbox_manager.main` is
 # imported so the in-module defaults are the baseline; tests that need an
-# override set it explicitly via `monkeypatch.setattr(main.settings, ...)`.
+# override set it explicitly via `monkeypatch.setitem(main.settings, ...)`.
+#
+# Use `setitem`, not `setattr`, to patch a settings key. dynaconf keeps keys in
+# its own store, not in the instance `__dict__`. Since pytest 9.2.0,
+# `monkeypatch.setattr` takes the value to restore from the instance `__dict__`,
+# finds none, and on undo deletes the key for the rest of the session.
+# `setitem` reads the old value with `settings.get()` and puts it back.
 os.environ.pop("NETBOX_MANAGER_NODE_ROLES", None)
 os.environ.pop("NETBOX_MANAGER_SWITCH_ROLES", None)
 

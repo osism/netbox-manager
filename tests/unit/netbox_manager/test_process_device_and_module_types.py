@@ -72,7 +72,7 @@ class TestEarlyReturn:
 
     def test_missing_library_returns_early(self, monkeypatch):
         dtl = install_dtl_mocks(monkeypatch)
-        monkeypatch.setattr(main.settings, "DEVICETYPE_LIBRARY", None, raising=False)
+        monkeypatch.setitem(main.settings, "DEVICETYPE_LIBRARY", None)
 
         result = main.process_device_and_module_types(
             "DEVICETYPE_LIBRARY", False, "devicetypes"
@@ -85,9 +85,7 @@ class TestEarlyReturn:
     def test_skip_flag_returns_early(self, monkeypatch):
         dtl = install_dtl_mocks(monkeypatch)
         # Library path present, but the skip flag short-circuits before any work.
-        monkeypatch.setattr(
-            main.settings, "DEVICETYPE_LIBRARY", "/lib/devicetypes", raising=False
-        )
+        monkeypatch.setitem(main.settings, "DEVICETYPE_LIBRARY", "/lib/devicetypes")
 
         result = main.process_device_and_module_types(
             "DEVICETYPE_LIBRARY", True, "devicetypes"
@@ -105,9 +103,7 @@ class TestBranchSelection:
         dtl = install_dtl_mocks(
             monkeypatch, vendors=["Arista"], types_data=[{"model": "Node"}]
         )
-        monkeypatch.setattr(
-            main.settings, "DEVICETYPE_LIBRARY", "/lib/devicetypes", raising=False
-        )
+        monkeypatch.setitem(main.settings, "DEVICETYPE_LIBRARY", "/lib/devicetypes")
 
         main.process_device_and_module_types("DEVICETYPE_LIBRARY", False, "devicetypes")
 
@@ -122,9 +118,7 @@ class TestBranchSelection:
         dtl = install_dtl_mocks(
             monkeypatch, vendors=["Foo"], types_data=[{"model": "Mod"}]
         )
-        monkeypatch.setattr(
-            main.settings, "MODULETYPE_LIBRARY", "/lib/moduletypes", raising=False
-        )
+        monkeypatch.setitem(main.settings, "MODULETYPE_LIBRARY", "/lib/moduletypes")
 
         main.process_device_and_module_types("MODULETYPE_LIBRARY", False, "moduletypes")
 
@@ -142,9 +136,7 @@ class TestFileNotFound:
         dtl = install_dtl_mocks(
             monkeypatch, **{f"{failing}_error": FileNotFoundError("missing")}
         )
-        monkeypatch.setattr(
-            main.settings, "DEVICETYPE_LIBRARY", "/lib/devicetypes", raising=False
-        )
+        monkeypatch.setitem(main.settings, "DEVICETYPE_LIBRARY", "/lib/devicetypes")
 
         # A FileNotFoundError from either repo call is caught, not propagated.
         result = main.process_device_and_module_types(

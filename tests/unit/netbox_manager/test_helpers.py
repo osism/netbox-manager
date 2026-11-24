@@ -19,7 +19,7 @@ class TestGetNodeRoles:
     """``get_node_roles`` reads ``settings.NODE_ROLES`` or falls back."""
 
     def test_returns_setting_when_present(self, monkeypatch):
-        monkeypatch.setattr(main.settings, "NODE_ROLES", ["custom-node"], raising=False)
+        monkeypatch.setitem(main.settings, "NODE_ROLES", ["custom-node"])
         assert main.get_node_roles() == ["custom-node"]
 
     def test_falls_back_to_default_when_absent(self):
@@ -27,12 +27,12 @@ class TestGetNodeRoles:
         assert main.get_node_roles() is main._DEFAULT_NODE_ROLES
 
     def test_falls_back_to_default_when_none(self, monkeypatch):
-        monkeypatch.setattr(main.settings, "NODE_ROLES", None, raising=False)
+        monkeypatch.setitem(main.settings, "NODE_ROLES", None)
         assert main.get_node_roles() is main._DEFAULT_NODE_ROLES
 
     def test_falls_back_to_default_when_empty_list(self, monkeypatch):
         # Empty list is falsy, so the ``or`` falls through to the default.
-        monkeypatch.setattr(main.settings, "NODE_ROLES", [], raising=False)
+        monkeypatch.setitem(main.settings, "NODE_ROLES", [])
         assert main.get_node_roles() is main._DEFAULT_NODE_ROLES
 
 
@@ -40,20 +40,18 @@ class TestGetSwitchRoles:
     """``get_switch_roles`` mirrors ``get_node_roles`` for SWITCH_ROLES."""
 
     def test_returns_setting_when_present(self, monkeypatch):
-        monkeypatch.setattr(
-            main.settings, "SWITCH_ROLES", ["custom-switch"], raising=False
-        )
+        monkeypatch.setitem(main.settings, "SWITCH_ROLES", ["custom-switch"])
         assert main.get_switch_roles() == ["custom-switch"]
 
     def test_falls_back_to_default_when_absent(self):
         assert main.get_switch_roles() is main._DEFAULT_SWITCH_ROLES
 
     def test_falls_back_to_default_when_none(self, monkeypatch):
-        monkeypatch.setattr(main.settings, "SWITCH_ROLES", None, raising=False)
+        monkeypatch.setitem(main.settings, "SWITCH_ROLES", None)
         assert main.get_switch_roles() is main._DEFAULT_SWITCH_ROLES
 
     def test_falls_back_to_default_when_empty_list(self, monkeypatch):
-        monkeypatch.setattr(main.settings, "SWITCH_ROLES", [], raising=False)
+        monkeypatch.setitem(main.settings, "SWITCH_ROLES", [])
         assert main.get_switch_roles() is main._DEFAULT_SWITCH_ROLES
 
 

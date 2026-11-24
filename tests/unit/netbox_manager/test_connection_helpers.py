@@ -104,12 +104,10 @@ class TestCreateNetboxApi:
 
     def test_create_api_positional_url_and_stringified_token(self, monkeypatch):
         calls, fake_api = make_api_recorder(monkeypatch)
-        monkeypatch.setattr(
-            main.settings, "URL", "http://netbox.example", raising=False
-        )
+        monkeypatch.setitem(main.settings, "URL", "http://netbox.example")
         # A non-string token proves the str(...) coercion on the way in.
-        monkeypatch.setattr(main.settings, "TOKEN", 12345, raising=False)
-        monkeypatch.setattr(main.settings, "IGNORE_SSL_ERRORS", False, raising=False)
+        monkeypatch.setitem(main.settings, "TOKEN", 12345)
+        monkeypatch.setitem(main.settings, "IGNORE_SSL_ERRORS", False)
 
         result = main.create_netbox_api()
 
@@ -123,11 +121,9 @@ class TestCreateNetboxApi:
 
     def test_create_api_ignore_ssl_disables_verify(self, monkeypatch):
         _, fake_api = make_api_recorder(monkeypatch)
-        monkeypatch.setattr(
-            main.settings, "URL", "http://netbox.example", raising=False
-        )
-        monkeypatch.setattr(main.settings, "TOKEN", "abc", raising=False)
-        monkeypatch.setattr(main.settings, "IGNORE_SSL_ERRORS", True, raising=False)
+        monkeypatch.setitem(main.settings, "URL", "http://netbox.example")
+        monkeypatch.setitem(main.settings, "TOKEN", "abc")
+        monkeypatch.setitem(main.settings, "IGNORE_SSL_ERRORS", True)
 
         main.create_netbox_api()
 

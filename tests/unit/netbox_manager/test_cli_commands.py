@@ -181,7 +181,7 @@ class TestAutoconfCommand:
     def test_flat_mode_dispatches_worker_once(
         self, cli_runner, mock_cli_workers, monkeypatch, tmp_path
     ):
-        monkeypatch.setattr(main.settings, "RESOURCES", str(tmp_path), raising=False)
+        monkeypatch.setitem(main.settings, "RESOURCES", str(tmp_path))
         detect = MagicMock(return_value={})
         monkeypatch.setattr(main, "detect_site_folders", detect)
 
@@ -201,7 +201,7 @@ class TestAutoconfCommand:
     def test_output_option_derives_prefix_and_output_dir(
         self, cli_runner, mock_cli_workers, monkeypatch, tmp_path
     ):
-        monkeypatch.setattr(main.settings, "RESOURCES", str(tmp_path), raising=False)
+        monkeypatch.setitem(main.settings, "RESOURCES", str(tmp_path))
         monkeypatch.setattr(main, "detect_site_folders", MagicMock(return_value={}))
 
         result = cli_runner.invoke(
@@ -216,7 +216,7 @@ class TestAutoconfCommand:
     def test_dryrun_and_debug_plumbing(
         self, cli_runner, mock_cli_workers, monkeypatch, tmp_path
     ):
-        monkeypatch.setattr(main.settings, "RESOURCES", str(tmp_path), raising=False)
+        monkeypatch.setitem(main.settings, "RESOURCES", str(tmp_path))
         monkeypatch.setattr(main, "detect_site_folders", MagicMock(return_value={}))
 
         result = cli_runner.invoke(app, ["autoconf", "--dryrun", "--debug"])
@@ -235,7 +235,7 @@ class TestAutoconfCommand:
         caplog,
         make_request_error,
     ):
-        monkeypatch.setattr(main.settings, "RESOURCES", str(tmp_path), raising=False)
+        monkeypatch.setitem(main.settings, "RESOURCES", str(tmp_path))
         monkeypatch.setattr(main, "detect_site_folders", MagicMock(return_value={}))
         mock_cli_workers.run_autoconf_for_devices.side_effect = make_request_error(
             "boom"
@@ -249,7 +249,7 @@ class TestAutoconfCommand:
     def test_generic_error_from_worker_exits_1(
         self, cli_runner, mock_cli_workers, monkeypatch, tmp_path, caplog
     ):
-        monkeypatch.setattr(main.settings, "RESOURCES", str(tmp_path), raising=False)
+        monkeypatch.setitem(main.settings, "RESOURCES", str(tmp_path))
         monkeypatch.setattr(main, "detect_site_folders", MagicMock(return_value={}))
         mock_cli_workers.run_autoconf_for_devices.side_effect = RuntimeError("kaput")
 
