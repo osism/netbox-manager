@@ -37,7 +37,7 @@ def _no_global_vars(monkeypatch):
     ``None`` makes it return ``{}`` (the real function still runs), so the
     rendered ``vars`` block reflects only what each test's ``vars`` tasks merge.
     """
-    monkeypatch.setattr(main.settings, "VARS", None, raising=False)
+    monkeypatch.setitem(main.settings, "VARS", None)
 
 
 def write_resource_file(tmp_path, text, name="300-test.yml"):

@@ -97,7 +97,7 @@ class TestShouldHaveLoopbackInterface:
         assert main.should_have_loopback_interface(make_device()) is False
 
     def test_custom_node_role_from_settings(self, make_device, monkeypatch):
-        monkeypatch.setattr(main.settings, "NODE_ROLES", ["myrole"], raising=False)
+        monkeypatch.setitem(main.settings, "NODE_ROLES", ["myrole"])
         device = make_device(role_slug="myrole")
         assert main.should_have_loopback_interface(device) is True
 
@@ -106,12 +106,12 @@ class TestShouldHaveLoopbackInterface:
     ):
         # Overriding NODE_ROLES replaces the defaults, so "control" no longer
         # counts as a node role and the device gets no loopback.
-        monkeypatch.setattr(main.settings, "NODE_ROLES", ["myrole"], raising=False)
+        monkeypatch.setitem(main.settings, "NODE_ROLES", ["myrole"])
         device = make_device(role_slug="control")
         assert main.should_have_loopback_interface(device) is False
 
     def test_custom_switch_role_from_settings(self, make_device, monkeypatch):
-        monkeypatch.setattr(main.settings, "SWITCH_ROLES", ["myswitch"], raising=False)
+        monkeypatch.setitem(main.settings, "SWITCH_ROLES", ["myswitch"])
         device = make_device(
             role_slug="myswitch",
             custom_fields={"sonic_parameters": {"hwsku": "AS7326"}},

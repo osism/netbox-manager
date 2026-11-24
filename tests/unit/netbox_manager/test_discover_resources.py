@@ -9,8 +9,8 @@ Tier 3 groups 3-5 of the coverage effort tracked in #232 (issue #259):
 ``extract_device_names_from_folder`` (the set of ``- device: {name: X}`` names
 across a folder's YAML files). Everything is exercised through pytest's
 ``tmp_path`` -- no live NetBox, no ``pynetbox`` mocks, no ``ansible_runner`` --
-with ``settings.VARS`` driven via ``monkeypatch.setattr(main.settings, "VARS",
-..., raising=False)`` for the ``vars``-exclusion cases.
+with ``settings.VARS`` driven via ``monkeypatch.setitem(main.settings, "VARS",
+...)`` for the ``vars``-exclusion cases.
 
 Assertions on cross-directory ordering are confined to single-numbered-dir
 layouts, because ``os.listdir`` order across sibling directories is
@@ -34,7 +34,7 @@ def _no_global_vars(monkeypatch):
     ``vars`` subdirectory; an exported ``NETBOX_MANAGER_VARS`` would otherwise
     leak in. The vars-exclusion tests override this with their own value.
     """
-    monkeypatch.setattr(main.settings, "VARS", None, raising=False)
+    monkeypatch.setitem(main.settings, "VARS", None)
 
 
 class TestDiscoverResourceFiles:
@@ -76,7 +76,7 @@ class TestDiscoverResourceFiles:
         site = tmp_path / "200-site"
         site.mkdir()
         (site / "devices.yml").write_text("[]\n")
-        monkeypatch.setattr(main.settings, "VARS", str(vars_dir), raising=False)
+        monkeypatch.setitem(main.settings, "VARS", str(vars_dir))
 
         result = main.discover_resource_files(str(tmp_path))
 
@@ -86,7 +86,7 @@ class TestDiscoverResourceFiles:
         vars_dir = tmp_path / "100-vars"
         vars_dir.mkdir()
         (vars_dir / "globals.yml").write_text("[]\n")
-        monkeypatch.setattr(main.settings, "VARS", None, raising=False)
+        monkeypatch.setitem(main.settings, "VARS", None)
 
         result = main.discover_resource_files(str(tmp_path))
 

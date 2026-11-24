@@ -10,8 +10,7 @@ the empty-bucket skip, the target-directory selection chain (explicit
 ``resources_dir`` -> ``settings.RESOURCES`` fallback -> bare filename in the
 current directory), the ``os.makedirs(..., exist_ok=True)`` call, and the
 return count -- all through pytest's ``tmp_path`` with ``settings.RESOURCES``
-driven via ``monkeypatch.setattr(main.settings, "RESOURCES", ...,
-raising=False)``.
+driven via ``monkeypatch.setitem(main.settings, "RESOURCES", ...)``.
 
 The dump-format correctness of ``ProperIndentDumper`` and the ``yaml.dump(...)``
 signature are Tier 2 / #249 and out of scope here: these tests may
@@ -36,7 +35,7 @@ def _no_settings_resources(monkeypatch):
     own ``tmp_path`` subdirectory; the explicit-``resources_dir`` and
     bare-filename tests rely on the ``None`` baseline.
     """
-    monkeypatch.setattr(main.settings, "RESOURCES", None, raising=False)
+    monkeypatch.setitem(main.settings, "RESOURCES", None)
 
 
 class TestWriteAutoconfFiles:
@@ -78,7 +77,7 @@ class TestWriteAutoconfFiles:
         fallback = tmp_path / "fallback"
         explicit = tmp_path / "explicit"
         explicit.mkdir()
-        monkeypatch.setattr(main.settings, "RESOURCES", str(fallback), raising=False)
+        monkeypatch.setitem(main.settings, "RESOURCES", str(fallback))
 
         written = main._write_autoconf_files(
             {"device": [{"device": {"name": "node-0"}}]},
@@ -93,7 +92,7 @@ class TestWriteAutoconfFiles:
 
     def test_falls_back_to_settings_resources(self, tmp_path, monkeypatch):
         fallback = tmp_path / "fallback"
-        monkeypatch.setattr(main.settings, "RESOURCES", str(fallback), raising=False)
+        monkeypatch.setitem(main.settings, "RESOURCES", str(fallback))
 
         written = main._write_autoconf_files(
             {"device": [{"device": {"name": "node-0"}}]},
@@ -107,7 +106,7 @@ class TestWriteAutoconfFiles:
     def test_bare_filename_in_cwd_when_neither_resolves(self, tmp_path, monkeypatch):
         # Neither an explicit dir nor settings.RESOURCES resolves -> the file is
         # written to the bare filename in the current working directory.
-        monkeypatch.setattr(main.settings, "RESOURCES", None, raising=False)
+        monkeypatch.setitem(main.settings, "RESOURCES", None)
         monkeypatch.chdir(tmp_path)
 
         written = main._write_autoconf_files(

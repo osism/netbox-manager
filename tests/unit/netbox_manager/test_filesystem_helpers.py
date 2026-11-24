@@ -7,9 +7,9 @@ Tier 3 groups 1-2 of the coverage effort tracked in #232:
 ``load_global_vars`` (which reads and ``deep_merge``s every YAML file in
 ``settings.VARS``). Both are exercised entirely through pytest's ``tmp_path`` --
 no live NetBox, no ``pynetbox`` mocks, no ``ansible_runner`` -- with the
-dynaconf settings stub driven via ``monkeypatch.setattr(main.settings, "VARS",
-..., raising=False)`` (``raising=False`` because dynaconf resolves keys through
-``__getattr__`` rather than real attributes).
+dynaconf settings stub driven via ``monkeypatch.setitem(main.settings, "VARS",
+...)`` (``setitem`` because dynaconf keeps keys in its own store rather
+than in real attributes, see ``tests/conftest.py``).
 
 The ``FileNotFoundError`` and generic-``Exception`` branches of
 ``load_global_vars`` are reached without monkeypatching ``os`` / ``glob`` /
@@ -44,7 +44,7 @@ def _no_global_vars(monkeypatch):
     ``load_global_vars`` test that needs a ``VARS`` directory overrides this with
     its own ``tmp_path`` subdirectory.
     """
-    monkeypatch.setattr(main.settings, "VARS", None, raising=False)
+    monkeypatch.setitem(main.settings, "VARS", None)
 
 
 class TestFindYamlFiles:
@@ -92,19 +92,19 @@ class TestLoadGlobalVars:
         """Create a ``vars`` dir under ``tmp_path`` and point ``settings.VARS``."""
         vars_dir = tmp_path / "vars"
         vars_dir.mkdir()
-        monkeypatch.setattr(main.settings, "VARS", str(vars_dir), raising=False)
+        monkeypatch.setitem(main.settings, "VARS", str(vars_dir))
         return vars_dir
 
     def test_vars_unset_returns_empty(self, monkeypatch):
         # The autouse fixture already set VARS to None; be explicit anyway.
-        monkeypatch.setattr(main.settings, "VARS", None, raising=False)
+        monkeypatch.setitem(main.settings, "VARS", None)
         assert main.load_global_vars() == {}
 
     def test_vars_dir_missing_returns_empty_and_debug_logs(
         self, tmp_path, monkeypatch, caplog
     ):
         missing = tmp_path / "novars"  # never created on disk
-        monkeypatch.setattr(main.settings, "VARS", str(missing), raising=False)
+        monkeypatch.setitem(main.settings, "VARS", str(missing))
 
         with caplog.at_level(logging.DEBUG):
             assert main.load_global_vars() == {}

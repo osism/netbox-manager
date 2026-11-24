@@ -23,8 +23,8 @@ from netbox_manager import main
 @pytest.fixture
 def roles(monkeypatch):
     """Pin SWITCH_ROLES / NODE_ROLES so only ``leaf`` devices are switches."""
-    monkeypatch.setattr(main.settings, "SWITCH_ROLES", ["leaf"], raising=False)
-    monkeypatch.setattr(main.settings, "NODE_ROLES", ["control"], raising=False)
+    monkeypatch.setitem(main.settings, "SWITCH_ROLES", ["leaf"])
+    monkeypatch.setitem(main.settings, "NODE_ROLES", ["control"])
 
 
 def _wire(monkeypatch, make_netbox_api, *, devices, interfaces_by_device):

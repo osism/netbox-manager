@@ -286,7 +286,7 @@ class TestGenerateAutoconfTasks:
     def test_switch_split_is_logged(
         self, monkeypatch, caplog, make_autoconf_api, make_device
     ):
-        monkeypatch.setattr(main.settings, "SWITCH_ROLES", ["leaf"], raising=False)
+        monkeypatch.setitem(main.settings, "SWITCH_ROLES", ["leaf"])
         devices = [
             make_device(name="switch-0", device_id=1, role_slug="leaf"),
             make_device(name="node-0", device_id=2, role_slug="control"),
@@ -304,7 +304,7 @@ class TestGenerateAutoconfTasks:
     ):
         # `collect_interface_assignments` runs over ALL devices, so a switch's
         # MAC lands in the device_interface bucket too.
-        monkeypatch.setattr(main.settings, "SWITCH_ROLES", ["leaf"], raising=False)
+        monkeypatch.setitem(main.settings, "SWITCH_ROLES", ["leaf"])
         devices = [
             make_device(name="switch-0", device_id=1, role_slug="leaf"),
             make_device(name="node-0", device_id=2, role_slug="control"),

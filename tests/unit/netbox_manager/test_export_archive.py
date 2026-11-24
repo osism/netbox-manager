@@ -54,7 +54,7 @@ def _reset_export_dirs(monkeypatch):
     need a directory set it explicitly via :func:`make_library_dirs`.
     """
     for attr in SETTINGS_DIRS:
-        monkeypatch.setattr(main.settings, attr, None, raising=False)
+        monkeypatch.setitem(main.settings, attr, None)
 
 
 def make_library_dirs(tmp_path, monkeypatch, present):
@@ -72,7 +72,7 @@ def make_library_dirs(tmp_path, monkeypatch, present):
         directory = tmp_path / SETTINGS_DIRS[attr]
         directory.mkdir()
         (directory / "model.yml").write_text("marker\n")
-        monkeypatch.setattr(main.settings, attr, str(directory), raising=False)
+        monkeypatch.setitem(main.settings, attr, str(directory))
         created[attr] = directory
     return created
 
@@ -112,8 +112,8 @@ class TestNoDirectories:
         if mode == "nonexistent_paths":
             # Configured, but nothing exists on disk -> os.path.exists gates fail.
             for attr in SETTINGS_DIRS:
-                monkeypatch.setattr(
-                    main.settings, attr, str(tmp_path / f"absent-{attr}"), raising=False
+                monkeypatch.setitem(
+                    main.settings, attr, str(tmp_path / f"absent-{attr}")
                 )
 
         with pytest.raises(typer.Exit) as exc_info:
@@ -188,11 +188,8 @@ class TestTarContents:
         monkeypatch.chdir(tmp_path)
         make_library_dirs(tmp_path, monkeypatch, {"DEVICETYPE_LIBRARY", "RESOURCES"})
         # Configured but absent on disk -> skipped by the os.path.exists gate.
-        monkeypatch.setattr(
-            main.settings,
-            "MODULETYPE_LIBRARY",
-            str(tmp_path / "absent-mt"),
-            raising=False,
+        monkeypatch.setitem(
+            main.settings, "MODULETYPE_LIBRARY", str(tmp_path / "absent-mt")
         )
 
         main.export_archive(image=False, image_size=100)

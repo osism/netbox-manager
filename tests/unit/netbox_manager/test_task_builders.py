@@ -8,8 +8,9 @@ builders that turn a YAML resource value into an Ansible task dict --
 ``create_uri_task`` (the ``ansible.builtin.uri`` direct API call). Both read
 ``settings.URL`` / ``settings.TOKEN`` / ``settings.IGNORE_SSL_ERRORS`` at call
 time; the baseline comes from the conftest dynaconf env stub and branch-specific
-values are injected with ``monkeypatch.setattr(main.settings, ..., raising=False)``
-(``raising=False`` because dynaconf resolves keys through ``__getattr__``).
+values are injected with ``monkeypatch.setitem(main.settings, ...)``
+(``setitem`` because dynaconf keeps keys in its own store, see
+``tests/conftest.py``).
 
 These builders mutate their ``value`` argument (``pop("state")`` and, for
 ``device_interface``, ``pop("update_vc_child")``), so every test passes a fresh
@@ -54,15 +55,13 @@ class TestCreateNetboxTask:
         assert task["netbox.netbox.netbox_vlan"]["validate_certs"] is True
 
     def test_validate_certs_false_when_ssl_errors_ignored(self, monkeypatch):
-        monkeypatch.setattr(main.settings, "IGNORE_SSL_ERRORS", True, raising=False)
+        monkeypatch.setitem(main.settings, "IGNORE_SSL_ERRORS", True)
         task = main.create_netbox_task("vlan", {"name": "OOB"})
         assert task["netbox.netbox.netbox_vlan"]["validate_certs"] is False
 
     def test_envelope_reads_settings_at_call_time(self, monkeypatch):
-        monkeypatch.setattr(
-            main.settings, "URL", "https://netbox.example.org", raising=False
-        )
-        monkeypatch.setattr(main.settings, "TOKEN", "other-token", raising=False)
+        monkeypatch.setitem(main.settings, "URL", "https://netbox.example.org")
+        monkeypatch.setitem(main.settings, "TOKEN", "other-token")
         task = main.create_netbox_task("vlan", {"name": "OOB"})
         module = task["netbox.netbox.netbox_vlan"]
         assert module["netbox_url"] == "https://netbox.example.org"
@@ -70,7 +69,7 @@ class TestCreateNetboxTask:
 
     def test_token_is_stringified(self, monkeypatch):
         # A numeric token from settings is coerced to str(settings.TOKEN).
-        monkeypatch.setattr(main.settings, "TOKEN", 12345, raising=False)
+        monkeypatch.setitem(main.settings, "TOKEN", 12345)
         task = main.create_netbox_task("vlan", {"name": "OOB"})
         assert task["netbox.netbox.netbox_vlan"]["netbox_token"] == "12345"
 
@@ -146,9 +145,7 @@ class TestCreateUriTask:
         )
 
     def test_trailing_slash_url_does_not_produce_double_slash(self, monkeypatch):
-        monkeypatch.setattr(
-            main.settings, "URL", "http://localhost:8000/", raising=False
-        )
+        monkeypatch.setitem(main.settings, "URL", "http://localhost:8000/")
         task = main.create_uri_task({"path": "dcim"})
         assert task["ansible.builtin.uri"]["url"] == "http://localhost:8000/api/dcim"
 
@@ -180,7 +177,7 @@ class TestCreateUriTask:
         assert task["ansible.builtin.uri"]["validate_certs"] is True
 
     def test_validate_certs_false_when_ssl_errors_ignored(self, monkeypatch):
-        monkeypatch.setattr(main.settings, "IGNORE_SSL_ERRORS", True, raising=False)
+        monkeypatch.setitem(main.settings, "IGNORE_SSL_ERRORS", True)
         task = main.create_uri_task({"path": "dcim"})
         assert task["ansible.builtin.uri"]["validate_certs"] is False
 
